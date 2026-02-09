@@ -1,0 +1,86 @@
+export interface Vehicle {
+  id: number;
+  login: string;
+  car_number: string;
+  tariff: 'standard' | 'comfort' | 'business' | 'premium';
+  driver_name?: string;
+  phone?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Video {
+  id: number;
+  title: string;
+  filename: string;
+  file_path: string;
+  file_size?: number;
+  duration?: number;
+  video_type: 'filler' | 'contract';
+  plays_per_hour?: number;
+  tariffs: string;
+  priority: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Playlist {
+  id: number;
+  vehicle_id: number;
+  tariff: string;
+  video_sequence: number[];
+  valid_from: string;
+  valid_until: string;
+  created_at: string;
+}
+
+export interface Session {
+  id: number;
+  vehicle_id: number;
+  start_time: string;
+  end_time?: string;
+  total_duration_seconds: number;
+  videos_played: number;
+}
+
+export interface PlaybackLog {
+  id: number;
+  vehicle_id: number;
+  video_id: number;
+  played_at: string;
+  duration_seconds: number;
+  is_prime_time: boolean;
+  completed: boolean;
+}
+
+export interface DailyAnalytics {
+  date: string;
+  total_duration_seconds: number;
+  videos_played: number;
+  prime_time_duration_seconds: number;
+  earnings: number;
+}
+
+export interface VideoAnalytics {
+  video_id: number;
+  video_title: string;
+  play_count: number;
+  total_duration: number;
+}
+
+export interface VehicleAnalytics {
+  vehicle_id: number;
+  car_number: string;
+  daily_stats: DailyAnalytics[];
+  video_stats: VideoAnalytics[];
+  total_earnings: number;
+}
+
+export interface DashboardStats {
+  total_vehicles: number;
+  active_vehicles: number;
+  total_videos: number;
+  total_playbacks_today: number;
+  total_earnings_today: number;
+  active_sessions: number;
+}

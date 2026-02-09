@@ -1,0 +1,35 @@
+from pydantic_settings import BaseSettings
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    # Database
+    DATABASE_URL: str = "postgresql://billboard_user:billboard_pass@localhost:5432/billboard_db"
+    
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+    
+    # JWT
+    SECRET_KEY: str = "your-secret-key-change-in-production"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days for vehicles
+    
+    # File Storage
+    UPLOAD_DIR: str = "./uploads/videos"
+    MAX_VIDEO_SIZE_MB: int = 500
+    
+    # Prime Time (час пик)
+    PRIME_TIME_START: int = 18  # 18:00
+    PRIME_TIME_END: int = 22    # 22:00
+    PRIME_TIME_MULTIPLIER: float = 1.5
+    
+    # Server
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+
+settings = Settings()

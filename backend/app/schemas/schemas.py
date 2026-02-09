@@ -1,0 +1,153 @@
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from datetime import datetime
+from app.models.models import VehicleTariff, VideoType
+
+
+# Vehicle Schemas
+class VehicleCreate(BaseModel):
+    login: str
+    password: str
+    car_number: str
+    tariff: VehicleTariff
+    driver_name: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class VehicleResponse(BaseModel):
+    id: int
+    login: str
+    car_number: str
+    tariff: VehicleTariff
+    driver_name: Optional[str]
+    phone: Optional[str]
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class VehicleLogin(BaseModel):
+    login: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+# Video Schemas
+class VideoCreate(BaseModel):
+    title: str
+    video_type: VideoType
+    plays_per_hour: Optional[int] = None
+    tariffs: List[VehicleTariff]
+    priority: int = 0
+
+
+class VideoUpdate(BaseModel):
+    title: Optional[str] = None
+    video_type: Optional[VideoType] = None
+    plays_per_hour: Optional[int] = None
+    tariffs: Optional[List[VehicleTariff]] = None
+    priority: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class VideoResponse(BaseModel):
+    id: int
+    title: str
+    filename: str
+    file_path: str
+    file_size: Optional[int]
+    duration: Optional[float]
+    video_type: VideoType
+    plays_per_hour: Optional[int]
+    tariffs: str
+    priority: int
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Session Schemas
+class SessionStart(BaseModel):
+    vehicle_id: int
+
+
+class SessionEnd(BaseModel):
+    session_id: int
+
+
+class SessionResponse(BaseModel):
+    id: int
+    vehicle_id: int
+    start_time: datetime
+    end_time: Optional[datetime]
+    total_duration_seconds: int
+    videos_played: int
+    
+    class Config:
+        from_attributes = True
+
+
+# Playback Log Schemas
+class PlaybackLogCreate(BaseModel):
+    video_id: int
+    duration_seconds: float
+    completed: bool = True
+
+
+class PlaybackLogResponse(BaseModel):
+    id: int
+    vehicle_id: int
+    video_id: int
+    played_at: datetime
+    duration_seconds: float
+    is_prime_time: bool
+    completed: bool
+    
+    class Config:
+        from_attributes = True
+
+
+# Playlist Schemas
+class PlaylistResponse(BaseModel):
+    id: int
+    vehicle_id: int
+    tariff: VehicleTariff
+    video_sequence: List[int]
+    valid_from: datetime
+    valid_until: datetime
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Analytics Schemas
+class DailyAnalytics(BaseModel):
+    date: str
+    total_duration_seconds: int
+    videos_played: int
+    prime_time_duration_seconds: int
+    earnings: float
+
+
+class VideoAnalytics(BaseModel):
+    video_id: int
+    video_title: str
+    play_count: int
+    total_duration: float
+
+
+class VehicleAnalytics(BaseModel):
+    vehicle_id: int
+    car_number: str
+    daily_stats: List[DailyAnalytics]
+    video_stats: List[VideoAnalytics]
+    total_earnings: float

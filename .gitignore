@@ -1,0 +1,26 @@
+# Backend
+backend/__pycache__/
+backend/venv/
+backend/.env
+backend/uploads/
+backend/*.db
+
+# Mobile
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/.pub-cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
