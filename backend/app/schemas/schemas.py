@@ -157,6 +157,8 @@ class PlaylistResponse(BaseModel):
     contract_videos: List[ContractVideoItem]
     # Список филлеров с длительностью
     filler_videos: List[FillerVideoItem]
+    # Упорядоченная последовательность ID видео для воспроизведения
+    video_sequence: List[int]
     # Общая длительность плейлиста в секундах (3600 для часового плейлиста)
     total_duration: float = 3600.0
     valid_from: datetime

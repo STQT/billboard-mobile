@@ -59,6 +59,7 @@ class Playlist {
   final String tariff;
   final List<ContractVideoItem> contractVideos;
   final List<FillerVideoItem> fillerVideos;
+  final List<int> videoSequence; // Упорядоченная последовательность ID видео
   final double totalDuration; // Общая длительность плейлиста в секундах (3600 для часового)
   final DateTime validFrom;
   final DateTime validUntil;
@@ -70,6 +71,7 @@ class Playlist {
     required this.tariff,
     required this.contractVideos,
     required this.fillerVideos,
+    required this.videoSequence,
     required this.totalDuration,
     required this.validFrom,
     required this.validUntil,
@@ -87,6 +89,9 @@ class Playlist {
       fillerVideos: (json['filler_videos'] as List<dynamic>?)
           ?.map((item) => FillerVideoItem.fromJson(item))
           .toList() ?? [],
+      videoSequence: (json['video_sequence'] as List<dynamic>?)
+          ?.map((id) => id as int)
+          .toList() ?? [],
       totalDuration: (json['total_duration'] as num?)?.toDouble() ?? 3600.0,
       validFrom: DateTime.parse(json['valid_from']),
       validUntil: DateTime.parse(json['valid_until']),
@@ -102,11 +107,8 @@ class Playlist {
   /// Проверить, является ли плейлист общим по тарифу
   bool get isTariffBased => vehicleId == null;
   
-  /// Получить список всех ID видео (контрактные + филлеры)
+  /// Получить список всех уникальных ID видео (из последовательности)
   List<int> get allVideoIds {
-    final ids = <int>[];
-    ids.addAll(contractVideos.map((v) => v.videoId));
-    ids.addAll(fillerVideos.map((v) => v.videoId));
-    return ids;
+    return videoSequence.toSet().toList();
   }
 }

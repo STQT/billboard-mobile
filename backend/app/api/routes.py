@@ -446,6 +446,32 @@ def _get_base_url(request: Request) -> str:
     return base_url
 
 
+def _build_playlist_response(db: Session, playlist: Playlist, request: Request) -> PlaylistResponse:
+    """Построить PlaylistResponse из объекта Playlist"""
+    # Построить временную шкалу плейлиста
+    base_url = _get_base_url(request)
+    contract_videos, filler_videos = PlaylistService.build_playlist_timeline(db, playlist, base_url)
+    
+    # Получить упорядоченную последовательность видео
+    try:
+        video_sequence = json.loads(playlist.video_sequence)
+    except (json.JSONDecodeError, TypeError):
+        video_sequence = []
+    
+    return PlaylistResponse(
+        id=playlist.id,
+        vehicle_id=playlist.vehicle_id,
+        tariff=playlist.tariff,
+        contract_videos=[ContractVideoItem(**item) for item in contract_videos],
+        filler_videos=[FillerVideoItem(**item) for item in filler_videos],
+        video_sequence=video_sequence,
+        total_duration=3600.0,  # 1 час
+        valid_from=playlist.valid_from,
+        valid_until=playlist.valid_until,
+        created_at=playlist.created_at
+    )
+
+
 @router.get("/playlists/current", response_model=PlaylistResponse)
 def get_current_playlist(
     request: Request,
@@ -480,21 +506,7 @@ def get_current_playlist(
             hours=24
         )
     
-    # Построить временную шкалу плейлиста
-    base_url = _get_base_url(request)
-    contract_videos, filler_videos = PlaylistService.build_playlist_timeline(db, playlist, base_url)
-    
-    return PlaylistResponse(
-        id=playlist.id,
-        vehicle_id=playlist.vehicle_id,
-        tariff=playlist.tariff,
-        contract_videos=[ContractVideoItem(**item) for item in contract_videos],
-        filler_videos=[FillerVideoItem(**item) for item in filler_videos],
-        total_duration=3600.0,  # 1 час
-        valid_from=playlist.valid_from,
-        valid_until=playlist.valid_until,
-        created_at=playlist.created_at
-    )
+    return _build_playlist_response(db, playlist, request)
 
 
 @router.post("/playlists/regenerate", response_model=PlaylistResponse)
@@ -512,21 +524,7 @@ def regenerate_playlist(
         hours=hours
     )
     
-    # Построить временную шкалу плейлиста
-    base_url = _get_base_url(request)
-    contract_videos, filler_videos = PlaylistService.build_playlist_timeline(db, playlist, base_url)
-    
-    return PlaylistResponse(
-        id=playlist.id,
-        vehicle_id=playlist.vehicle_id,
-        tariff=playlist.tariff,
-        contract_videos=[ContractVideoItem(**item) for item in contract_videos],
-        filler_videos=[FillerVideoItem(**item) for item in filler_videos],
-        total_duration=3600.0,  # 1 час
-        valid_from=playlist.valid_from,
-        valid_until=playlist.valid_until,
-        created_at=playlist.created_at
-    )
+    return _build_playlist_response(db, playlist, request)
 
 
 # ============ PLAYLISTS (Admin — без авторизации) ============
@@ -565,21 +563,7 @@ def get_playlist_by_vehicle(vehicle_id: int, request: Request, db: Session = Dep
             hours=24
         )
     
-    # Построить временную шкалу плейлиста
-    base_url = _get_base_url(request)
-    contract_videos, filler_videos = PlaylistService.build_playlist_timeline(db, playlist, base_url)
-    
-    return PlaylistResponse(
-        id=playlist.id,
-        vehicle_id=playlist.vehicle_id,
-        tariff=playlist.tariff,
-        contract_videos=[ContractVideoItem(**item) for item in contract_videos],
-        filler_videos=[FillerVideoItem(**item) for item in filler_videos],
-        total_duration=3600.0,  # 1 час
-        valid_from=playlist.valid_from,
-        valid_until=playlist.valid_until,
-        created_at=playlist.created_at
-    )
+    return _build_playlist_response(db, playlist, request)
 
 
 @router.post("/playlists/vehicle/{vehicle_id}/regenerate", response_model=PlaylistResponse)
@@ -602,21 +586,7 @@ def admin_regenerate_playlist(
         hours=hours
     )
     
-    # Построить временную шкалу плейлиста
-    base_url = _get_base_url(request)
-    contract_videos, filler_videos = PlaylistService.build_playlist_timeline(db, playlist, base_url)
-    
-    return PlaylistResponse(
-        id=playlist.id,
-        vehicle_id=playlist.vehicle_id,
-        tariff=playlist.tariff,
-        contract_videos=[ContractVideoItem(**item) for item in contract_videos],
-        filler_videos=[FillerVideoItem(**item) for item in filler_videos],
-        total_duration=3600.0,  # 1 час
-        valid_from=playlist.valid_from,
-        valid_until=playlist.valid_until,
-        created_at=playlist.created_at
-    )
+    return _build_playlist_response(db, playlist, request)
 
 
 @router.get("/playlists/tariff/{tariff}", response_model=PlaylistResponse)
@@ -649,21 +619,7 @@ def get_playlist_by_tariff(tariff: VehicleTariff, request: Request, db: Session 
             hours=24
         )
     
-    # Построить временную шкалу плейлиста
-    base_url = _get_base_url(request)
-    contract_videos, filler_videos = PlaylistService.build_playlist_timeline(db, playlist, base_url)
-    
-    return PlaylistResponse(
-        id=playlist.id,
-        vehicle_id=playlist.vehicle_id,
-        tariff=playlist.tariff,
-        contract_videos=[ContractVideoItem(**item) for item in contract_videos],
-        filler_videos=[FillerVideoItem(**item) for item in filler_videos],
-        total_duration=3600.0,  # 1 час
-        valid_from=playlist.valid_from,
-        valid_until=playlist.valid_until,
-        created_at=playlist.created_at
-    )
+    return _build_playlist_response(db, playlist, request)
 
 
 @router.post("/playlists/tariff/{tariff}/regenerate", response_model=PlaylistResponse)
@@ -682,21 +638,7 @@ def admin_regenerate_playlist_by_tariff(
         hours=hours
     )
     
-    # Построить временную шкалу плейлиста
-    base_url = _get_base_url(request)
-    contract_videos, filler_videos = PlaylistService.build_playlist_timeline(db, playlist, base_url)
-    
-    return PlaylistResponse(
-        id=playlist.id,
-        vehicle_id=playlist.vehicle_id,
-        tariff=playlist.tariff,
-        contract_videos=[ContractVideoItem(**item) for item in contract_videos],
-        filler_videos=[FillerVideoItem(**item) for item in filler_videos],
-        total_duration=3600.0,  # 1 час
-        valid_from=playlist.valid_from,
-        valid_until=playlist.valid_until,
-        created_at=playlist.created_at
-    )
+    return _build_playlist_response(db, playlist, request)
 
 
 # ============ SESSIONS ============

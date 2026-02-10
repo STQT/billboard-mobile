@@ -18,9 +18,9 @@ class PlaylistService:
         
         Логика:
         1. Проверить есть ли контрактные видео для данного тарифа
-        2. Если есть - заполнить контрактными видео с нужной частотой
-        3. Если нет контрактных - заполнить филлерами в разброс (чтобы не повторялись подряд)
-        4. Перемешать так, чтобы контрактные видео были равномерно распределены
+        2. Если есть - разместить контрактные видео в определенных временных слотах согласно plays_per_hour
+        3. Заполнить свободное время между контрактными видео филлерами
+        4. Если нет контрактных - заполнить филлерами в разброс (чтобы не повторялись подряд)
         """
         
         # Получить все активные контрактные видео для данного тарифа
@@ -37,39 +37,15 @@ class PlaylistService:
             Video.tariffs.contains(tariff.value)
         ).order_by(Video.priority.desc()).all()
         
-        # Создать последовательность видео
-        playlist_sequence = []
-        
         # Фильтруем видео с валидной длительностью
         contract_videos = [v for v in contract_videos if v.duration and v.duration > 0]
         filler_videos = [v for v in filler_videos if v.duration and v.duration > 0]
         
-        # Если есть контрактные видео - заполняем ими
+        # Если есть контрактные видео - создаем плейлист с временными слотами
         if contract_videos:
-            # Добавить контрактные видео с нужной частотой
-            for video in contract_videos:
-                plays = video.plays_per_hour or 1
-                for _ in range(plays):
-                    playlist_sequence.append(video.id)
-            
-            # Рассчитать сколько времени займут контрактные видео
-            total_contract_duration = sum(
-                video.duration * (video.plays_per_hour or 1) 
-                for video in contract_videos
-            )
-            
-            # Заполнить оставшееся время филлерами (примерно до 1 часа = 3600 секунд)
-            remaining_time = max(0, 3600 - total_contract_duration)
-            playlist_sequence = PlaylistService._fill_with_fillers(
-                playlist_sequence, 
-                filler_videos, 
-                remaining_time
-            )
-            
-            # Перемешать плейлист для равномерного распределения контрактных видео
-            playlist_sequence = PlaylistService._distribute_evenly(
-                playlist_sequence, 
-                [v.id for v in contract_videos]
+            playlist_sequence = PlaylistService._generate_scheduled_playlist(
+                contract_videos,
+                filler_videos
             )
         else:
             # Если нет контрактных видео - заполнить только филлерами в разброс
@@ -83,6 +59,152 @@ class PlaylistService:
                 3600,
                 shuffle=True  # В разброс, чтобы не повторялись подряд
             )
+        
+        return playlist_sequence
+    
+    @staticmethod
+    def _generate_scheduled_playlist(
+        contract_videos: List[Video],
+        filler_videos: List[Video]
+    ) -> List[int]:
+        """
+        Генерация плейлиста с учетом временных слотов для контрактных видео.
+        
+        Логика:
+        1. Создаем временную шкалу на 1 час (3600 секунд)
+        2. Размещаем контрактные видео равномерно согласно plays_per_hour
+        3. Избегаем наложения контрактных видео друг на друга
+        4. Заполняем свободные промежутки филлерами
+        
+        Args:
+            contract_videos: Список контрактных видео
+            filler_videos: Список филлеров
+            
+        Returns:
+            Последовательность ID видео
+        """
+        HOUR_DURATION = 3600.0  # 1 час в секундах
+        
+        # Структура для хранения временных слотов: [(start_time, end_time, video_id, type)]
+        timeline = []
+        
+        # Функция для проверки пересечения временных интервалов
+        def intervals_overlap(start1, end1, start2, end2):
+            return start1 < end2 and start2 < end1
+        
+        # Функция для поиска свободного слота
+        def find_free_slot(preferred_start, duration, timeline):
+            """Найти свободный слот начиная с preferred_start"""
+            end_time = preferred_start + duration
+            
+            # Проверяем, свободен ли предпочтительный слот
+            is_free = True
+            for t_start, t_end, _, _ in timeline:
+                if intervals_overlap(preferred_start, end_time, t_start, t_end):
+                    is_free = False
+                    break
+            
+            if is_free and end_time <= HOUR_DURATION:
+                return preferred_start
+            
+            # Если предпочтительный слот занят, ищем ближайший свободный
+            # Сдвигаемся вперед по маленьким шагам
+            step = 1.0  # шаг в секундах
+            for offset in range(0, int(HOUR_DURATION), int(step)):
+                start_time = (preferred_start + offset) % HOUR_DURATION
+                end_time = start_time + duration
+                
+                if end_time > HOUR_DURATION:
+                    continue
+                
+                is_free = True
+                for t_start, t_end, _, _ in timeline:
+                    if intervals_overlap(start_time, end_time, t_start, t_end):
+                        is_free = False
+                        break
+                
+                if is_free:
+                    return start_time
+            
+            return None  # Не нашли свободный слот
+        
+        # Размещаем контрактные видео на временной шкале
+        for video_idx, video in enumerate(contract_videos):
+            plays = video.plays_per_hour or 1
+            duration = video.duration
+            
+            # Вычисляем интервал между показами (равномерное распределение)
+            interval = HOUR_DURATION / plays
+            
+            # Добавляем небольшое смещение для разных видео, чтобы избежать наложения
+            # Смещение зависит от индекса видео в списке
+            offset = (video_idx * 10) % 60  # Смещение до 60 секунд
+            
+            # Размещаем каждое воспроизведение
+            for i in range(plays):
+                # Предпочтительное время начала: i * интервал + смещение
+                preferred_start = (i * interval + offset) % HOUR_DURATION
+                
+                # Находим свободный слот
+                start_time = find_free_slot(preferred_start, duration, timeline)
+                
+                if start_time is not None:
+                    end_time = start_time + duration
+                    timeline.append((start_time, end_time, video.id, 'contract'))
+        
+        # Сортируем временную шкалу по времени начала
+        timeline.sort(key=lambda x: x[0])
+        
+        # Находим свободные промежутки и заполняем их филлерами
+        free_slots = []
+        current_time = 0.0
+        
+        for start_time, end_time, video_id, video_type in timeline:
+            if current_time < start_time:
+                # Есть свободный промежуток
+                free_slots.append((current_time, start_time))
+            current_time = max(current_time, end_time)
+        
+        # Последний свободный промежуток до конца часа
+        if current_time < HOUR_DURATION:
+            free_slots.append((current_time, HOUR_DURATION))
+        
+        # Заполняем свободные промежутки филлерами
+        if filler_videos and free_slots:
+            filler_index = 0
+            last_filler_id = None
+            
+            for slot_start, slot_end in free_slots:
+                slot_duration = slot_end - slot_start
+                slot_filled = 0.0
+                
+                # Заполняем этот слот филлерами
+                while slot_filled < slot_duration and filler_index < len(filler_videos) * 100:
+                    # Выбираем филлер (избегаем повторения подряд)
+                    filler = filler_videos[filler_index % len(filler_videos)]
+                    
+                    # Если это не тот же филлер, что и предыдущий, используем его
+                    if filler.id != last_filler_id or len(filler_videos) == 1:
+                        filler_start = slot_start + slot_filled
+                        filler_end = min(filler_start + filler.duration, slot_end)
+                        
+                        # Добавляем филлер только если он хоть частично помещается
+                        if filler_end > filler_start:
+                            timeline.append((filler_start, filler_end, filler.id, 'filler'))
+                            slot_filled += (filler_end - filler_start)
+                            last_filler_id = filler.id
+                    
+                    filler_index += 1
+                    
+                    # Если заполнили слот, переходим к следующему
+                    if slot_filled >= slot_duration:
+                        break
+        
+        # Сортируем финальную временную шкалу по времени начала
+        timeline.sort(key=lambda x: x[0])
+        
+        # Преобразуем временную шкалу в последовательность ID
+        playlist_sequence = [video_id for _, _, video_id, _ in timeline]
         
         return playlist_sequence
     
@@ -159,41 +281,6 @@ class PlaylistService:
                 remaining_time -= duration
                 filler_index += 1
                 iterations += 1
-        
-        return result
-    
-    @staticmethod
-    def _distribute_evenly(sequence: List[int], priority_ids: List[int]) -> List[int]:
-        """
-        Распределить priority_ids равномерно по всему плейлисту
-        """
-        if not priority_ids:
-            return sequence
-        
-        # Отделить контрактные видео от филлеров
-        contract_items = [x for x in sequence if x in priority_ids]
-        filler_items = [x for x in sequence if x not in priority_ids]
-        
-        if not contract_items:
-            return sequence
-        
-        # Равномерно распределить контрактные видео
-        result = []
-        contract_step = len(sequence) / len(contract_items) if contract_items else 1
-        
-        contract_positions = [int(i * contract_step) for i in range(len(contract_items))]
-        
-        filler_idx = 0
-        contract_idx = 0
-        
-        for i in range(len(sequence)):
-            if i in contract_positions and contract_idx < len(contract_items):
-                result.append(contract_items[contract_idx])
-                contract_idx += 1
-            else:
-                if filler_idx < len(filler_items):
-                    result.append(filler_items[filler_idx])
-                    filler_idx += 1
         
         return result
     
