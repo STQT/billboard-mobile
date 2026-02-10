@@ -2,6 +2,10 @@
 
 A new Flutter project.
 
+build apk
+
+[//]: # (flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/debug-info)
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

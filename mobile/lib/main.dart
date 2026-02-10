@@ -79,7 +79,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       });
     }
   }
-
+  // kaireke
+  // 719364825g
   @override
   Widget build(BuildContext context) {
     // Показать splash screen пока проверяется токен
@@ -113,7 +114,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
         ),
       );
     }
-
     return Consumer<AuthService>(
       builder: (context, authService, _) {
         if (authService.isAuthenticated) {
