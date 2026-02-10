@@ -4,10 +4,14 @@ from datetime import datetime
 from app.models.models import VehicleTariff, VideoType
 
 
+# Bcrypt принимает пароль до 72 байт
+PASSWORD_MAX_LENGTH = 72
+
+
 # Vehicle Schemas
 class VehicleCreate(BaseModel):
     login: str
-    password: str
+    password: str = Field(..., min_length=1, max_length=PASSWORD_MAX_LENGTH)
     car_number: str
     tariff: VehicleTariff
     driver_name: Optional[str] = None
@@ -30,7 +34,16 @@ class VehicleResponse(BaseModel):
 
 class VehicleLogin(BaseModel):
     login: str
-    password: str
+    password: str = Field(..., min_length=1, max_length=PASSWORD_MAX_LENGTH)
+
+
+class VehicleUpdate(BaseModel):
+    login: str
+    password: Optional[str] = Field(None, min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    car_number: str
+    tariff: VehicleTariff
+    driver_name: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class Token(BaseModel):

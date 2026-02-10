@@ -58,12 +58,16 @@ export default function Vehicles() {
 
   const loadVehicles = async () => {
     try {
-      // Временно используем mock данные, т.к. endpoint /vehicles еще нет
-      // В реальности: const response = await vehiclesApi.getAll();
-      setVehicles([]);
-      enqueueSnackbar('Автомобили загружены', { variant: 'success' });
-    } catch (error) {
-      enqueueSnackbar('Ошибка загрузки автомобилей', { variant: 'error' });
+      setLoading(true);
+      const response = await vehiclesApi.getAll();
+      setVehicles(response.data);
+      if (response.data.length === 0) {
+        enqueueSnackbar('Нет автомобилей. Добавьте первый автомобиль.', { variant: 'info' });
+      }
+    } catch (error: any) {
+      console.error('Error loading vehicles:', error);
+      const message = error.response?.data?.detail || 'Ошибка загрузки автомобилей';
+      enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -102,27 +106,48 @@ export default function Vehicles() {
   const handleSubmit = async () => {
     try {
       if (editingVehicle) {
-        // await vehiclesApi.update(editingVehicle.id, formData);
+        // При обновлении отправляем только заполненные поля, пароль опционален
+        const updateData: any = {
+          login: formData.login,
+          car_number: formData.car_number,
+          tariff: formData.tariff,
+          driver_name: formData.driver_name || null,
+          phone: formData.phone || null,
+        };
+        // Добавить пароль только если он указан
+        if (formData.password && formData.password.trim()) {
+          updateData.password = formData.password;
+        }
+        await vehiclesApi.update(editingVehicle.id, updateData);
         enqueueSnackbar('Автомобиль обновлен', { variant: 'success' });
       } else {
+        // При создании пароль обязателен
+        if (!formData.password || !formData.password.trim()) {
+          enqueueSnackbar('Пароль обязателен для нового автомобиля', { variant: 'warning' });
+          return;
+        }
         await vehiclesApi.create(formData);
         enqueueSnackbar('Автомобиль создан', { variant: 'success' });
       }
       handleCloseDialog();
       loadVehicles();
-    } catch (error) {
-      enqueueSnackbar('Ошибка сохранения', { variant: 'error' });
+    } catch (error: any) {
+      console.error('Error saving vehicle:', error);
+      const message = error.response?.data?.detail || 'Ошибка сохранения';
+      enqueueSnackbar(message, { variant: 'error' });
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (window.confirm('Вы уверены?')) {
+    if (window.confirm('Вы уверены, что хотите удалить этот автомобиль?')) {
       try {
         await vehiclesApi.delete(id);
         enqueueSnackbar('Автомобиль удален', { variant: 'success' });
         loadVehicles();
-      } catch (error) {
-        enqueueSnackbar('Ошибка удаления', { variant: 'error' });
+      } catch (error: any) {
+        console.error('Error deleting vehicle:', error);
+        const message = error.response?.data?.detail || 'Ошибка удаления';
+        enqueueSnackbar(message, { variant: 'error' });
       }
     }
   };
@@ -160,7 +185,13 @@ export default function Vehicles() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {vehicles.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center">
+                  Загрузка...
+                </TableCell>
+              </TableRow>
+            ) : vehicles.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center">
                   Нет данных. Добавьте первый автомобиль.
@@ -218,7 +249,7 @@ export default function Vehicles() {
             margin="normal"
             disabled={!!editingVehicle}
           />
-          {!editingVehicle && (
+          {!editingVehicle ? (
             <TextField
               fullWidth
               label="Пароль"
@@ -226,6 +257,17 @@ export default function Vehicles() {
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               margin="normal"
+              required
+            />
+          ) : (
+            <TextField
+              fullWidth
+              label="Новый пароль (оставьте пустым чтобы не менять)"
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              margin="normal"
+              helperText="Оставьте пустым, чтобы не менять текущий пароль"
             />
           )}
           <TextField

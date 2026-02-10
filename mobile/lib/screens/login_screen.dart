@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,6 +15,32 @@ class _LoginScreenState extends State<LoginScreen> {
   final _loginController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _rememberLogin = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedLogin();
+  }
+
+  Future<void> _loadSavedLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedLogin = prefs.getString('saved_login');
+    if (savedLogin != null && mounted) {
+      setState(() {
+        _loginController.text = savedLogin;
+      });
+    }
+  }
+
+  Future<void> _saveLoginIfNeeded(String login) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_rememberLogin) {
+      await prefs.setString('saved_login', login);
+    } else {
+      await prefs.remove('saved_login');
+    }
+  }
 
   @override
   void dispose() {
@@ -32,6 +59,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _loginController.text,
       _passwordController.text,
     );
+
+    if (success) {
+      // Сохранить логин если нужно
+      await _saveLoginIfNeeded(_loginController.text);
+    }
 
     setState(() => _isLoading = false);
 
@@ -128,7 +160,31 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                         onFieldSubmitted: (_) => _handleLogin(),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: _rememberLogin,
+                            onChanged: (value) {
+                              setState(() {
+                                _rememberLogin = value ?? true;
+                              });
+                            },
+                          ),
+                          const Text('Запомнить логин'),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '💡 Токен авторизации сохраняется автоматически',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         height: 48,

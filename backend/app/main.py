@@ -1,14 +1,35 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 import os
+import time
 
 from app.api.routes import router
 from app.core.config import settings
 from app.db.database import engine, Base
 
-# Создать таблицы
-Base.metadata.create_all(bind=engine)
+
+def init_db():
+    """Создать таблицы с повторными попытками при старте в Docker."""
+    for attempt in range(10):
+        try:
+            Base.metadata.create_all(bind=engine)
+            return
+        except Exception as e:
+            if attempt < 9:
+                time.sleep(2)
+                continue
+            raise e
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: ждём БД и создаём таблицы
+    init_db()
+    yield
+    # Shutdown (при необходимости)
+
 
 # Создать директорию для загрузок
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -16,7 +37,8 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 app = FastAPI(
     title="Billboard Mobile API",
     description="API для системы цифровой рекламы в такси",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS

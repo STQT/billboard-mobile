@@ -47,15 +47,30 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> checkAuth() async {
+  /// Проверить сохраненный токен и восстановить сессию
+  Future<bool> checkAuth() async {
     try {
+      // Проверить наличие токена
+      final hasToken = await _apiService.hasToken();
+      if (!hasToken) {
+        _isAuthenticated = false;
+        notifyListeners();
+        return false;
+      }
+
+      // Проверить валидность токена через API
       final vehicleData = await _apiService.getCurrentVehicle();
       _currentVehicle = Vehicle.fromJson(vehicleData);
       _isAuthenticated = true;
       notifyListeners();
+      return true;
     } catch (e) {
+      // Токен невалиден или ошибка сети
       _isAuthenticated = false;
+      _errorMessage = null; // Не показывать ошибку при автоматической проверке
+      await _apiService.clearToken();
       notifyListeners();
+      return false;
     }
   }
 }

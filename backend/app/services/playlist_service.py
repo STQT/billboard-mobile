@@ -50,13 +50,21 @@ class PlaylistService:
         )
         
         # Заполнить оставшееся время филлерами (примерно до 1 часа = 3600 секунд)
-        remaining_time = 3600 - total_contract_duration
+        remaining_time = max(0, 3600 - total_contract_duration)
         filler_index = 0
+        max_filler_slots = 5000  # защита от бесконечного цикла
         
-        while remaining_time > 0 and filler_videos:
+        while remaining_time > 0 and filler_videos and len(playlist_sequence) < max_filler_slots:
             video = filler_videos[filler_index % len(filler_videos)]
+            duration = video.duration or 0
+            if duration <= 0:
+                # без длительности не добавляем в цикл — избегаем бесконечного цикла
+                filler_index += 1
+                if filler_index >= len(filler_videos):
+                    break
+                continue
             playlist_sequence.append(video.id)
-            remaining_time -= (video.duration or 0)
+            remaining_time -= duration
             filler_index += 1
         
         # Перемешать плейлист для равномерного распределения
@@ -106,20 +114,17 @@ class PlaylistService:
     @staticmethod
     def create_playlist(db: Session, vehicle_id: int, tariff: VehicleTariff, hours: int = 24) -> Playlist:
         """
-        Создать плейлист для автомобиля на N часов
+        Создать плейлист для автомобиля: генерируется только 1 час контента.
+        Период действия — hours (по умолчанию 24). Приложение зацикливает часовой плейлист.
         """
-        # Генерировать плейлист на каждый час и объединить
-        full_sequence = []
-        for _ in range(hours):
-            hourly_playlist = PlaylistService.generate_hourly_playlist(db, tariff, vehicle_id)
-            full_sequence.extend(hourly_playlist)
+        # Один часовой плейлист — приложение зациклит его
+        hourly_sequence = PlaylistService.generate_hourly_playlist(db, tariff, vehicle_id)
         
-        # Создать запись плейлиста
         now = datetime.utcnow()
         playlist = Playlist(
             vehicle_id=vehicle_id,
             tariff=tariff,
-            video_sequence=json.dumps(full_sequence),
+            video_sequence=json.dumps(hourly_sequence),
             valid_from=now,
             valid_until=now + timedelta(hours=hours)
         )

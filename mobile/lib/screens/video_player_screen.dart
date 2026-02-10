@@ -19,6 +19,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   VideoPlayerController? _controller;
   bool _isInitializing = true;
   Video? _currentVideo;
+  bool _isDisposing = false;
+  VoidCallback? _videoEndListener;
 
   @override
   void initState() {
@@ -43,6 +45,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _playCurrentVideo() async {
+    if (_isDisposing || !mounted) return;
+    
     final videoService = context.read<VideoService>();
     final analyticsService = context.read<AnalyticsService>();
 
@@ -59,11 +63,22 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
     _currentVideo = video;
 
+    // Удалить старый listener если есть
+    if (_videoEndListener != null && _controller != null) {
+      _controller!.removeListener(_videoEndListener!);
+      _videoEndListener = null;
+    }
+
     // Dispose old controller
     await _controller?.dispose();
+    _controller = null;
+
+    if (_isDisposing || !mounted) return;
 
     // Получить URL видео (из кеша или сервера)
     final videoUrl = await videoService.getVideoUrl(video);
+
+    if (_isDisposing || !mounted) return;
 
     // Создать новый controller
     if (videoUrl.startsWith('http')) {
@@ -75,21 +90,43 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     // Начать отслеживание воспроизведения
     analyticsService.startVideoPlayback();
 
-    await _controller!.initialize();
-    _controller!.setLooping(false);
-    _controller!.play();
+    try {
+      await _controller!.initialize();
+      
+      if (_isDisposing || !mounted || _controller == null) return;
+      
+      _controller!.setLooping(false);
+      _controller!.play();
 
-    // Слушать окончание видео
-    _controller!.addListener(() {
-      if (_controller!.value.position >= _controller!.value.duration) {
-        _onVideoEnded();
+      // Создать и добавить слушателя для окончания видео
+      _videoEndListener = () {
+        if (_controller != null && 
+            _controller!.value.isInitialized &&
+            _controller!.value.position >= _controller!.value.duration &&
+            _controller!.value.duration > Duration.zero) {
+          _onVideoEnded();
+        }
+      };
+      _controller!.addListener(_videoEndListener!);
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error initializing video: $e');
+      if (mounted) {
+        // Попробовать следующее видео при ошибке
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && !_isDisposing) {
+            videoService.nextVideo();
+            _playCurrentVideo();
+          }
+        });
       }
-    });
-
-    if (mounted) setState(() {});
+    }
   }
 
   void _onVideoEnded() {
+    if (_isDisposing || !mounted) return;
+    
     final videoService = context.read<VideoService>();
     
     // Переключиться на следующее видео
@@ -99,10 +136,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   void dispose() {
+    _isDisposing = true;
+    
+    // Удалить listener перед dispose
+    if (_videoEndListener != null && _controller != null) {
+      _controller!.removeListener(_videoEndListener!);
+      _videoEndListener = null;
+    }
+    
     _controller?.dispose();
+    _controller = null;
     
     // Завершить сессию при выходе
-    context.read<AnalyticsService>().endSession();
+    try {
+      context.read<AnalyticsService>().endSession();
+    } catch (e) {
+      debugPrint('Error ending session: $e');
+    }
     
     super.dispose();
   }
@@ -224,9 +274,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       children: [
         IconButton(
           icon: const Icon(Icons.skip_previous, color: Colors.white, size: 32),
-          onPressed: () {
+          onPressed: () async {
             videoService.previousVideo();
-            _playCurrentVideo();
+            await _playCurrentVideo();
           },
         ),
         IconButton(
@@ -246,9 +296,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         ),
         IconButton(
           icon: const Icon(Icons.skip_next, color: Colors.white, size: 32),
-          onPressed: () {
+          onPressed: () async {
             videoService.nextVideo();
-            _playCurrentVideo();
+            await _playCurrentVideo();
           },
         ),
         IconButton(

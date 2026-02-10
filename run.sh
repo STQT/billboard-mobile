@@ -68,9 +68,37 @@ case $choice in
         
         source venv/bin/activate
         
+        # Проверка и установка зависимостей
+        if ! python -c "import uvicorn" 2>/dev/null || [ ! -f "venv/.installed" ]; then
+            echo "📦 Установка зависимостей..."
+            pip install -r requirements.txt
+            
+            # Попробовать установить с binary wheels сначала
+            echo "📦 Попытка установки с binary wheels..."
+            if pip install -q --only-binary :all: -r requirements.txt 2>/dev/null; then
+                echo "✅ Зависимости установлены (binary wheels)"
+                touch venv/.installed
+            else
+                echo "⚠️  Binary wheels недоступны, пробуем обычную установку..."
+                echo "💡 Если возникнут ошибки, см. backend/TROUBLESHOOTING.md"
+                pip install -q -r requirements.txt || {
+                    echo ""
+                    echo "❌ Ошибка установки зависимостей"
+                    echo "💡 Попробуйте:"
+                    echo "   1. Освободите место на диске (нужно ~500MB)"
+                    echo "   2. Запустите: bash backend/install_requirements.sh"
+                    echo "   3. Или используйте Docker: docker-compose up -d"
+                    exit 1
+                }
+                touch venv/.installed
+                echo "✅ Зависимости установлены"
+            fi
+        fi
+        
         if [ ! -f ".env" ]; then
             echo "📝 Создание .env файла..."
             cp .env.example .env
+            echo "⚠️  Не забудьте настроить .env файл!"
         fi
         
         echo "🌐 Запуск сервера на http://localhost:8000"
@@ -98,9 +126,11 @@ case $choice in
         if [ ! -d "node_modules" ]; then
             echo "📦 Установка зависимостей..."
             npm install
+            echo "✅ Зависимости установлены"
         fi
         
         echo "🚀 Запуск на http://localhost:3000"
+        echo "⚠️  Убедитесь что Backend запущен на http://localhost:8000"
         npm run dev
         ;;
         
@@ -125,10 +155,20 @@ case $choice in
         echo "🧪 Тестирование API..."
         cd backend
         
-        if [ -d "venv" ]; then
-            source venv/bin/activate
+        if [ ! -d "venv" ]; then
+            echo "❌ Виртуальное окружение не создано. Сначала запустите опцию 1 или 6"
+            exit 1
         fi
         
+        source venv/bin/activate
+        
+        # Проверка зависимостей
+        if ! python -c "import requests" 2>/dev/null; then
+            echo "📦 Установка зависимостей для тестов..."
+            pip install -q -r requirements.txt
+        fi
+        
+        echo "⚠️  Убедитесь что Backend запущен на http://localhost:8000"
         python test_api.py
         ;;
         

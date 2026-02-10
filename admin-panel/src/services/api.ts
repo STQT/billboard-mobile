@@ -8,7 +8,8 @@ import type {
   DashboardStats,
 } from '../types';
 
-const API_BASE_URL = '/api/v1';
+// Backend API на порту 8000; в production задать VITE_API_URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -31,7 +32,14 @@ export const vehiclesApi = {
   getAll: () => api.get<Vehicle[]>('/vehicles'),
   getById: (id: number) => api.get<Vehicle>(`/vehicles/${id}`),
   create: (data: Partial<Vehicle>) => api.post<Vehicle>('/auth/register', data),
-  update: (id: number, data: Partial<Vehicle>) => api.put<Vehicle>(`/vehicles/${id}`, data),
+  update: (id: number, data: Partial<Vehicle>) => {
+    // Для обновления пароль опционален
+    const updateData = { ...data };
+    if (!updateData.password) {
+      delete updateData.password;
+    }
+    return api.put<Vehicle>(`/vehicles/${id}`, updateData);
+  },
   delete: (id: number) => api.delete(`/vehicles/${id}`),
 };
 
@@ -48,11 +56,11 @@ export const videosApi = {
   delete: (id: number) => api.delete(`/videos/${id}`),
 };
 
-// Playlists
+// Playlists (admin endpoints — без токена автомобиля)
 export const playlistsApi = {
-  getByVehicle: (vehicleId: number) => api.get<Playlist>(`/playlists/current?vehicle_id=${vehicleId}`),
+  getByVehicle: (vehicleId: number) => api.get<Playlist>(`/playlists/vehicle/${vehicleId}`),
   regenerate: (vehicleId: number, hours: number = 24) =>
-    api.post<Playlist>(`/playlists/regenerate?hours=${hours}&vehicle_id=${vehicleId}`),
+    api.post<Playlist>(`/playlists/vehicle/${vehicleId}/regenerate?hours=${hours}`),
 };
 
 // Sessions

@@ -70,7 +70,9 @@ class Video(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    playback_logs = relationship("PlaybackLog", back_populates="video")
+    # passive_deletes='all' - не устанавливать video_id=NULL при удалении Video
+    # Используется soft delete в API, но если нужно hard delete - добавить cascade="all, delete"
+    playback_logs = relationship("PlaybackLog", back_populates="video", passive_deletes='all')
 
 
 class VehicleSession(Base):

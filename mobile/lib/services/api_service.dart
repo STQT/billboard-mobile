@@ -2,10 +2,11 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://localhost:8000/api/v1'; // Изменить на реальный URL
+  static const String baseUrl = 'https://walking-loops-issues-pillow.trycloudflare.com/api/v1'; // Изменить на реальный URL
   
   late Dio _dio;
   String? _token;
+  bool _isInitialized = false;
 
   ApiService() {
     _dio = Dio(BaseOptions(
@@ -20,6 +21,10 @@ class ApiService {
     // Interceptor для добавления токена
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
+        // Убедиться что токен загружен
+        if (!_isInitialized) {
+          await _loadToken();
+        }
         if (_token != null) {
           options.headers['Authorization'] = 'Bearer $_token';
         }
@@ -33,13 +38,19 @@ class ApiService {
         return handler.next(error);
       },
     ));
-
-    _loadToken();
   }
 
   Future<void> _loadToken() async {
+    if (_isInitialized) return;
     final prefs = await SharedPreferences.getInstance();
     _token = prefs.getString('auth_token');
+    _isInitialized = true;
+  }
+
+  /// Проверить наличие сохраненного токена
+  Future<bool> hasToken() async {
+    await _loadToken();
+    return _token != null && _token!.isNotEmpty;
   }
 
   Future<void> setToken(String token) async {
@@ -79,9 +90,12 @@ class ApiService {
     return response.data;
   }
 
-  // Playlists
+  // Playlists (генерация на 24ч может занимать время — увеличен таймаут)
   Future<Map<String, dynamic>> getCurrentPlaylist() async {
-    final response = await _dio.get('/playlists/current');
+    final response = await _dio.get(
+      '/playlists/current',
+      options: Options(receiveTimeout: const Duration(seconds: 90)),
+    );
     return response.data;
   }
 

@@ -1,20 +1,35 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Bcrypt принимает максимум 72 байта
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
+
+def _to_bcrypt_password(s: str) -> bytes:
+    """Привести пароль к bytes и обрезать до 72 байт (ограничение bcrypt)."""
+    if isinstance(s, str):
+        s = s.encode("utf-8")
+    return s[:BCRYPT_MAX_PASSWORD_BYTES]
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Проверка пароля"""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Проверка пароля."""
+    try:
+        password_bytes = _to_bcrypt_password(plain_password)
+        hashed_bytes = hashed_password.encode("utf-8") if isinstance(hashed_password, str) else hashed_password
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception:
+        return False
 
 
 def get_password_hash(password: str) -> str:
-    """Хеширование пароля"""
-    return pwd_context.hash(password)
+    """Хеширование пароля (обрезается до 72 байт)."""
+    password_bytes = _to_bcrypt_password(password)
+    hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt(rounds=12))
+    return hashed.decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
