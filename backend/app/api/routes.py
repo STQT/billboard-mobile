@@ -487,6 +487,37 @@ def admin_regenerate_playlist(
     )
 
 
+@router.get("/playlists/tariff/{tariff}", response_model=PlaylistResponse)
+def get_playlist_by_tariff(tariff: VehicleTariff, db: Session = Depends(get_db)):
+    """Получить текущий плейлист по тарифу (для админ панели)"""
+    # Ищем общий плейлист по тарифу
+    playlist = PlaylistService.get_active_playlist(
+        db, 
+        tariff, 
+        vehicle_id=None
+    )
+    
+    if not playlist:
+        # Создать новый плейлист по тарифу
+        playlist = PlaylistService.create_playlist(
+            db, 
+            tariff,
+            vehicle_id=None,  # Общий плейлист по тарифу
+            hours=24
+        )
+    
+    video_sequence = json.loads(playlist.video_sequence)
+    return PlaylistResponse(
+        id=playlist.id,
+        vehicle_id=playlist.vehicle_id,
+        tariff=playlist.tariff,
+        video_sequence=video_sequence,
+        valid_from=playlist.valid_from,
+        valid_until=playlist.valid_until,
+        created_at=playlist.created_at
+    )
+
+
 @router.post("/playlists/tariff/{tariff}/regenerate", response_model=PlaylistResponse)
 def admin_regenerate_playlist_by_tariff(
     tariff: VehicleTariff,

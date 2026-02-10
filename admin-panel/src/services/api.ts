@@ -75,6 +75,11 @@ export const playlistsApi = {
   getByVehicle: (vehicleId: number) => api.get<Playlist>(`/playlists/vehicle/${vehicleId}`),
   regenerate: (vehicleId: number, hours: number = 24) =>
     api.post<Playlist>(`/playlists/vehicle/${vehicleId}/regenerate?hours=${hours}`),
+  // Получить плейлист по тарифу
+  getByTariff: (tariff: string) => api.get<Playlist>(`/playlists/tariff/${tariff}`),
+  // Регенерировать плейлист по тарифу
+  regenerateByTariff: (tariff: string, hours: number = 24) =>
+    api.post<Playlist>(`/playlists/tariff/${tariff}/regenerate?hours=${hours}`),
 };
 
 // Sessions

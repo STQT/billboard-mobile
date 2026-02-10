@@ -26,7 +26,7 @@ export interface Video {
 
 export interface Playlist {
   id: number;
-  vehicle_id: number;
+  vehicle_id: number | null;  // null для плейлиста по тарифу
   tariff: string;
   video_sequence: number[];
   valid_from: string;
