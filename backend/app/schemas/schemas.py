@@ -67,6 +67,7 @@ class VideoUpdate(BaseModel):
     tariffs: Optional[List[VehicleTariff]] = None
     priority: Optional[int] = None
     is_active: Optional[bool] = None
+    duration: Optional[float] = None  # Длительность в секундах
 
 
 class VideoResponse(BaseModel):
@@ -136,7 +137,7 @@ class ContractVideoItem(BaseModel):
     end_time: float    # Время окончания в секундах от начала часа (0-3600)
     duration: float    # Длительность в секундах
     frequency: int = 1  # Количество повторений этого видео в плейлисте
-    file_path: str      # Путь к файлу (например, /videos/filename.mp4)
+    file_path: str      # Путь к файлу (например, /uploads/videos/filename.mp4)
     media_url: str      # Полный URL для доступа к медиа файлу
 
 
@@ -144,7 +145,7 @@ class FillerVideoItem(BaseModel):
     """Филлерное видео с информацией"""
     video_id: int
     duration: float    # Длительность в секундах
-    file_path: str     # Путь к файлу (например, /videos/filename.mp4)
+    file_path: str     # Путь к файлу (например, /uploads/videos/filename.mp4)
     media_url: str     # Полный URL для доступа к медиа файлу
 
 

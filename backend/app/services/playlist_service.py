@@ -40,6 +40,10 @@ class PlaylistService:
         # Создать последовательность видео
         playlist_sequence = []
         
+        # Фильтруем видео с валидной длительностью
+        contract_videos = [v for v in contract_videos if v.duration and v.duration > 0]
+        filler_videos = [v for v in filler_videos if v.duration and v.duration > 0]
+        
         # Если есть контрактные видео - заполняем ими
         if contract_videos:
             # Добавить контрактные видео с нужной частотой
@@ -50,7 +54,7 @@ class PlaylistService:
             
             # Рассчитать сколько времени займут контрактные видео
             total_contract_duration = sum(
-                (video.duration or 0) * (video.plays_per_hour or 1) 
+                video.duration * (video.plays_per_hour or 1) 
                 for video in contract_videos
             )
             
@@ -212,11 +216,26 @@ class PlaylistService:
         # Один часовой плейлист — приложение зациклит его
         hourly_sequence = PlaylistService.generate_hourly_playlist(db, tariff)
         
+        # Если последовательность пустая, это проблема - логируем предупреждение
+        if not hourly_sequence:
+            # Попробуем найти любые активные видео для этого тарифа
+            all_videos = db.query(Video).filter(
+                Video.is_active == True,
+                Video.tariffs.contains(tariff.value)
+            ).all()
+            
+            # Если есть видео, но они не попали в плейлист - возможно проблема с длительностью
+            if all_videos:
+                videos_without_duration = [v for v in all_videos if not v.duration or v.duration <= 0]
+                if videos_without_duration:
+                    # Есть видео без длительности - это проблема
+                    pass  # Можно добавить логирование здесь
+        
         now = datetime.utcnow()
         playlist = Playlist(
             vehicle_id=vehicle_id,  # None для плейлиста по тарифу
             tariff=tariff,
-            video_sequence=json.dumps(hourly_sequence),
+            video_sequence=json.dumps(hourly_sequence) if hourly_sequence else json.dumps([]),
             valid_from=now,
             valid_until=now + timedelta(hours=hours)
         )
@@ -278,20 +297,36 @@ class PlaylistService:
                 - Список контрактных видео с временными метками (группированные по ID с частотой)
                 - Список филлеров с длительностью и URL
         """
-        video_sequence = json.loads(playlist.video_sequence)
+        # Парсим video_sequence
+        try:
+            video_sequence = json.loads(playlist.video_sequence)
+        except (json.JSONDecodeError, TypeError):
+            video_sequence = []
         
         if not video_sequence:
+            # Если последовательность пустая, возвращаем пустые списки
             return [], []
         
         # Получить информацию о всех видео
         video_ids = set(video_sequence)
+        if not video_ids:
+            return [], []
+        
         videos = db.query(Video).filter(Video.id.in_(video_ids)).all()
         video_map = {v.id: v for v in videos}
         
+        # Проверить, что все видео найдены
+        missing_ids = video_ids - set(video_map.keys())
+        if missing_ids:
+            # Некоторые видео не найдены в БД - пропускаем их
+            video_sequence = [vid for vid in video_sequence if vid in video_map]
+        
         # Разделить на контрактные и филлеры
+        # Важно: проверяем только is_active, но не фильтруем по типу здесь,
+        # так как тип уже определен в video_map
         contract_video_ids = {
-            v.id for v in videos 
-            if v.video_type == VideoType.CONTRACT and v.is_active
+            vid for vid, video in video_map.items()
+            if video.video_type == VideoType.CONTRACT and video.is_active
         }
         
         # Подсчитать частоту повторений контрактных видео
@@ -308,26 +343,49 @@ class PlaylistService:
             # Клиент сам добавит свой базовый URL
             base_url = ""
         
-        # Вычислить временные метки для контрактных видео
-        # Контрактные видео размещаются последовательно по времени,
-        # филлеры используются для заполнения промежутков
-        contract_items = []
+        # Вычислить временные метки для всех видео в последовательности
+        # Проходим по последовательности и вычисляем реальные временные метки
+        contract_items_dict: Dict[int, Dict] = {}  # video_id -> {info with first occurrence}
         filler_items_dict: Dict[int, Dict] = {}  # video_id -> {duration, file_path}
         
         current_time = 0.0
         max_time = 3600.0  # 1 час
         
-        # Сначала собираем информацию о филлерах
+        # Проходим по всей последовательности и вычисляем временные метки
         for video_id in video_sequence:
             video = video_map.get(video_id)
-            if not video or not video.is_active:
+            if not video:
+                continue  # Видео не найдено в БД
+            
+            # Проверяем активность и длительность
+            if not video.is_active:
                 continue
             
             duration = video.duration or 0
             if duration <= 0:
-                continue
+                continue  # Пропускаем видео без длительности
             
-            if video_id not in contract_video_ids:
+            # Вычисляем временные метки для этого воспроизведения
+            end_time = min(current_time + duration, max_time)
+            
+            if video_id in contract_video_ids:
+                # Контрактное видео
+                if video_id not in contract_items_dict:
+                    # Первое вхождение - сохраняем информацию
+                    media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
+                    frequency = contract_frequency[video_id]
+                    contract_items_dict[video_id] = {
+                        'video_id': video_id,
+                        'start_time': current_time,  # Время первого воспроизведения
+                        'end_time': end_time,
+                        'duration': duration,  # Длительность одного воспроизведения
+                        'frequency': frequency,  # Количество повторений в плейлисте
+                        'file_path': video.file_path,
+                        'media_url': media_url,
+                    }
+                # Для последующих повторений не обновляем start_time,
+                # так как показываем только первое воспроизведение с frequency
+            else:
                 # Филлер - собираем информацию о длительности и пути
                 if video_id not in filler_items_dict:
                     media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
@@ -336,42 +394,16 @@ class PlaylistService:
                         'file_path': video.file_path,
                         'media_url': media_url,
                     }
-        
-        # Теперь вычисляем временные метки для контрактных видео
-        # Группируем по ID и считаем частоту
-        # Временная шкала показывает только первое воспроизведение, частота указывается отдельно
-        contract_videos_processed = set()
-        
-        for video_id in video_sequence:
-            video = video_map.get(video_id)
-            if not video or not video.is_active:
-                continue
             
-            duration = video.duration or 0
-            if duration <= 0:
-                continue
+            # Перемещаем время вперед на длительность этого видео
+            current_time = end_time
             
-            if video_id in contract_video_ids and video_id not in contract_videos_processed:
-                # Контрактное видео - добавляем с временными метками
-                # Временная шкала показывает только первое воспроизведение
-                frequency = contract_frequency[video_id]
-                end_time = min(current_time + duration, max_time)
-                
-                media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
-                
-                contract_items.append({
-                    'video_id': video_id,
-                    'start_time': current_time,
-                    'end_time': end_time,
-                    'duration': duration,  # Длительность одного воспроизведения
-                    'frequency': frequency,  # Количество повторений в плейлисте
-                    'file_path': video.file_path,
-                    'media_url': media_url,
-                })
-                # Перемещаем время только на одно воспроизведение
-                # Flutter приложение само будет повторять видео нужное количество раз
-                current_time = end_time
-                contract_videos_processed.add(video_id)
+            # Если достигли максимума, прекращаем обработку
+            if current_time >= max_time:
+                break
+        
+        # Преобразовать контрактные видео в список
+        contract_items = list(contract_items_dict.values())
         
         # Преобразовать филлеры в список
         filler_items = [

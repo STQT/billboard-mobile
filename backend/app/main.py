@@ -54,8 +54,9 @@ app.add_middleware(
 app.include_router(router, prefix="/api/v1")
 
 # Статические файлы (для видео)
+# Монтируем /uploads/videos на директорию ./uploads/videos
 if os.path.exists(settings.UPLOAD_DIR):
-    app.mount("/videos", StaticFiles(directory=settings.UPLOAD_DIR), name="videos")
+    app.mount("/uploads/videos", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads_videos")
 
 
 @app.get("/")

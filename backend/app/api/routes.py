@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta, date
 import json
 import os
 import shutil
+import subprocess
+import logging
 
 from app.db.database import get_db
 from app.models.models import Vehicle, Video, Playlist, VehicleTariff, VideoType
@@ -23,6 +25,73 @@ from app.services.analytics_service import AnalyticsService
 
 router = APIRouter()
 security = HTTPBearer()
+logger = logging.getLogger(__name__)
+
+
+def get_video_duration(file_path: str) -> Optional[float]:
+    """
+    Извлечь длительность видео из файла используя ffprobe.
+    
+    Args:
+        file_path: Путь к видео файлу
+        
+    Returns:
+        Длительность в секундах или None если не удалось извлечь
+    """
+    try:
+        # Проверяем доступность ffprobe
+        # В некоторых системах ffprobe может быть в /usr/bin/ffprobe
+        ffprobe_paths = ['ffprobe', '/usr/bin/ffprobe', '/usr/local/bin/ffprobe']
+        ffprobe_cmd = None
+        
+        for path in ffprobe_paths:
+            try:
+                result = subprocess.run(
+                    [path, '-version'],
+                    capture_output=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    ffprobe_cmd = path
+                    break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        
+        if not ffprobe_cmd:
+            logger.warning("ffprobe не найден. Установите ffmpeg для автоматического извлечения длительности видео.")
+            return None
+        
+        # Используем ffprobe для извлечения длительности
+        # Команда: ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 <file>
+        result = subprocess.run(
+            [
+                ffprobe_cmd,
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                file_path
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                duration = float(result.stdout.strip())
+                return duration if duration > 0 else None
+            except ValueError:
+                logger.warning(f"Не удалось распарсить длительность для {file_path}: {result.stdout}")
+                return None
+        else:
+            logger.warning(f"Не удалось извлечь длительность для {file_path}: {result.stderr}")
+            return None
+    except subprocess.TimeoutExpired:
+        logger.error(f"Таймаут при извлечении длительности для {file_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Ошибка при извлечении длительности для {file_path}: {e}")
+        return None
 
 
 # ============ AUTH ============
@@ -222,12 +291,19 @@ async def upload_video(
     # Получить размер файла
     file_size = os.path.getsize(local_file_path)
     
+    # Извлечь длительность видео
+    duration = get_video_duration(local_file_path)
+    if duration is None:
+        logger.warning(f"Не удалось автоматически извлечь длительность для {file.filename}. "
+                      f"Видео будет создано без длительности. "
+                      f"Установите ffmpeg или обновите длительность вручную через API.")
+    
     # Парсить тарифы
     tariffs_list = json.loads(tariffs)
     tariffs_str = ",".join(tariffs_list)
     
-    # Путь для клиента: /videos/filename (StaticFiles монтируется на /videos)
-    client_path = f"/videos/{file.filename}"
+    # Путь для клиента: /uploads/videos/filename
+    client_path = f"/uploads/videos/{file.filename}"
     
     # Создать запись видео
     video = Video(
@@ -235,6 +311,7 @@ async def upload_video(
         filename=file.filename,
         file_path=client_path,  # URL путь для клиентов
         file_size=file_size,
+        duration=duration,  # Длительность в секундах (может быть None)
         video_type=video_type,
         plays_per_hour=plays_per_hour,
         tariffs=tariffs_str,
@@ -383,6 +460,17 @@ def get_current_playlist(
         current_vehicle.id
     )
     
+    # Проверить, что плейлист имеет непустую последовательность
+    if playlist:
+        try:
+            video_sequence = json.loads(playlist.video_sequence)
+            if not video_sequence:
+                # Плейлист существует, но пустой - пересоздать
+                playlist = None
+        except (json.JSONDecodeError, TypeError):
+            # Ошибка парсинга - пересоздать
+            playlist = None
+    
     if not playlist:
         # Создать новый плейлист по тарифу (без vehicle_id)
         playlist = PlaylistService.create_playlist(
@@ -457,6 +545,17 @@ def get_playlist_by_vehicle(vehicle_id: int, request: Request, db: Session = Dep
         vehicle_id
     )
     
+    # Проверить, что плейлист имеет непустую последовательность
+    if playlist:
+        try:
+            video_sequence = json.loads(playlist.video_sequence)
+            if not video_sequence:
+                # Плейлист существует, но пустой - пересоздать
+                playlist = None
+        except (json.JSONDecodeError, TypeError):
+            # Ошибка парсинга - пересоздать
+            playlist = None
+    
     if not playlist:
         # Создать новый плейлист по тарифу (без vehicle_id)
         playlist = PlaylistService.create_playlist(
@@ -529,6 +628,17 @@ def get_playlist_by_tariff(tariff: VehicleTariff, request: Request, db: Session 
         tariff, 
         vehicle_id=None
     )
+    
+    # Проверить, что плейлист имеет непустую последовательность
+    if playlist:
+        try:
+            video_sequence = json.loads(playlist.video_sequence)
+            if not video_sequence:
+                # Плейлист существует, но пустой - пересоздать
+                playlist = None
+        except (json.JSONDecodeError, TypeError):
+            # Ошибка парсинга - пересоздать
+            playlist = None
     
     if not playlist:
         # Создать новый плейлист по тарифу
