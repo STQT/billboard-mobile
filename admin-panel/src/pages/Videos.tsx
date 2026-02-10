@@ -97,6 +97,10 @@ export default function Videos() {
     setDialogOpen(true);
   };
 
+  const handleOpenCreateDialog = () => {
+    handleOpenDialog();
+  };
+
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setEditingVideo(null);
@@ -195,7 +199,7 @@ export default function Videos() {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={handleOpenDialog}
+            onClick={handleOpenCreateDialog}
           >
             Загрузить видео
           </Button>
