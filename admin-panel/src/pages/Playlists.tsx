@@ -163,16 +163,20 @@ export default function Playlists() {
   }, [videosMap, selectedTariff, selectedVehicle, viewMode]);
 
   // Вычислить временную шкалу плейлиста на основе контрактных видео
+  // Теперь показываем ВСЕ повторения контрактных видео с их реальными временными метками
   const timeline = useMemo(() => {
     if (!playlist || !playlist.contract_videos.length) return [];
 
-    return playlist.contract_videos.map((cv) => ({
+    // Каждый элемент в contract_videos теперь представляет одно воспроизведение
+    // с его реальными временными метками
+    return playlist.contract_videos.map((cv, index) => ({
       videoId: cv.video_id,
       video: videosMap[cv.video_id],
       startTime: cv.start_time,
       endTime: cv.end_time,
       duration: cv.duration,
-      frequency: cv.frequency,
+      frequency: cv.frequency, // Общее количество повторений этого видео
+      occurrenceIndex: index + 1, // Номер этого воспроизведения
       isContract: true,
     }));
   }, [playlist, videosMap]);
@@ -338,7 +342,7 @@ export default function Playlists() {
                       
                       return (
                         <Tooltip
-                          key={`${item.videoId}-${idx}`}
+                          key={`${item.videoId}-${idx}-${item.startTime}`}
                           title={
                             <Box>
                               <Typography variant="body2" fontWeight="bold">
@@ -351,7 +355,7 @@ export default function Playlists() {
                                 Длительность: {formatTime(item.duration)}
                               </Typography>
                               <Typography variant="caption" display="block">
-                                Частота повторений: {item.frequency} раз
+                                Воспроизведение: {item.occurrenceIndex} из {item.frequency}
                               </Typography>
                               <Typography variant="caption" display="block">
                                 Тип: Контрактное
@@ -382,7 +386,7 @@ export default function Playlists() {
                                 transform: 'scaleY(1.1)',
                               },
                             }}
-                            title={`${item.video?.title || `Видео #${item.videoId}`} (${formatTime(item.startTime)} - ${formatTime(item.endTime)})`}
+                            title={`${item.video?.title || `Видео #${item.videoId}`} (${formatTime(item.startTime)} - ${formatTime(item.endTime)}) - ${item.occurrenceIndex}/${item.frequency}`}
                           >
                             {item.duration >= 30 && (
                               <Typography
@@ -396,7 +400,7 @@ export default function Playlists() {
                                   px: 0.5,
                                 }}
                               >
-                                #{idx + 1}
+                                {item.frequency > 1 ? `${item.videoId} (${item.occurrenceIndex}/${item.frequency})` : `#${item.videoId}`}
                               </Typography>
                             )}
                           </Box>
@@ -445,22 +449,27 @@ export default function Playlists() {
                 </Paper>
 
                 <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-                  Контрактные видео с временными метками:
+                  Контрактные видео (все воспроизведения с временными метками):
                 </Typography>
                 <Paper variant="outlined" sx={{ maxHeight: 320, overflow: 'auto', mb: 3 }}>
                   <List dense>
                     {playlist.contract_videos.map((cv, index) => {
                       const video = videosMap[cv.video_id];
+                      // Найти номер этого воспроизведения среди всех воспроизведений этого видео
+                      const videoOccurrences = playlist.contract_videos.filter(c => c.video_id === cv.video_id);
+                      const occurrenceIndex = videoOccurrences.findIndex(c => 
+                        c.start_time === cv.start_time && c.end_time === cv.end_time
+                      ) + 1;
                       
                       return (
-                        <ListItem key={`contract-${cv.video_id}-${index}`}>
+                        <ListItem key={`contract-${cv.video_id}-${index}-${cv.start_time}`}>
                           <ListItemText
                             primary={
                               <Box display="flex" alignItems="center" gap={1}>
                                 <span>{index + 1}. {video?.title || `Видео #${cv.video_id}`}</span>
                                 <Chip label="Контракт" size="small" color="primary" />
                                 {cv.frequency > 1 && (
-                                  <Chip label={`×${cv.frequency}`} size="small" color="secondary" />
+                                  <Chip label={`${occurrenceIndex}/${cv.frequency}`} size="small" color="secondary" />
                                 )}
                               </Box>
                             }
@@ -470,7 +479,7 @@ export default function Playlists() {
                                 <span> • {formatTime(cv.start_time)} - {formatTime(cv.end_time)}</span>
                                 <span> • Длительность: {formatTime(cv.duration)}</span>
                                 {cv.frequency > 1 && (
-                                  <span> • Повторений: {cv.frequency}</span>
+                                  <span> • Воспроизведение {occurrenceIndex} из {cv.frequency}</span>
                                 )}
                                 {cv.media_url && (
                                   <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>

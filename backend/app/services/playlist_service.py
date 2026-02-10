@@ -345,7 +345,8 @@ class PlaylistService:
         
         # Вычислить временные метки для всех видео в последовательности
         # Проходим по последовательности и вычисляем реальные временные метки
-        contract_items_dict: Dict[int, Dict] = {}  # video_id -> {info with first occurrence}
+        # Для контрактных видео сохраняем ВСЕ повторения с их временными метками
+        contract_items = []  # Список всех воспроизведений контрактных видео
         filler_items_dict: Dict[int, Dict] = {}  # video_id -> {duration, file_path}
         
         current_time = 0.0
@@ -369,22 +370,16 @@ class PlaylistService:
             end_time = min(current_time + duration, max_time)
             
             if video_id in contract_video_ids:
-                # Контрактное видео
-                if video_id not in contract_items_dict:
-                    # Первое вхождение - сохраняем информацию
-                    media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
-                    frequency = contract_frequency[video_id]
-                    contract_items_dict[video_id] = {
-                        'video_id': video_id,
-                        'start_time': current_time,  # Время первого воспроизведения
-                        'end_time': end_time,
-                        'duration': duration,  # Длительность одного воспроизведения
-                        'frequency': frequency,  # Количество повторений в плейлисте
-                        'file_path': video.file_path,
-                        'media_url': media_url,
-                    }
-                # Для последующих повторений не обновляем start_time,
-                # так как показываем только первое воспроизведение с frequency
+                # Контрактное видео - сохраняем КАЖДОЕ воспроизведение с временными метками
+                media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
+                contract_items.append({
+                    'video_id': video_id,
+                    'start_time': current_time,
+                    'end_time': end_time,
+                    'duration': duration,
+                    'file_path': video.file_path,
+                    'media_url': media_url,
+                })
             else:
                 # Филлер - собираем информацию о длительности и пути
                 if video_id not in filler_items_dict:
@@ -402,8 +397,45 @@ class PlaylistService:
             if current_time >= max_time:
                 break
         
-        # Преобразовать контрактные видео в список
-        contract_items = list(contract_items_dict.values())
+        # Теперь группируем контрактные видео по ID для подсчета frequency
+        # и создания итогового списка с frequency для каждого уникального видео
+        contract_items_grouped: Dict[int, Dict] = {}
+        for item in contract_items:
+            video_id = item['video_id']
+            if video_id not in contract_items_grouped:
+                # Первое вхождение - создаем запись с frequency
+                contract_items_grouped[video_id] = {
+                    'video_id': video_id,
+                    'start_time': item['start_time'],  # Время первого воспроизведения
+                    'end_time': item['end_time'],
+                    'duration': item['duration'],
+                    'frequency': contract_frequency[video_id],  # Общее количество повторений
+                    'file_path': item['file_path'],
+                    'media_url': item['media_url'],
+                    'occurrences': [item]  # Список всех воспроизведений с временными метками
+                }
+            else:
+                # Добавляем это воспроизведение в список
+                contract_items_grouped[video_id]['occurrences'].append(item)
+        
+        # Преобразовать в список, но для API возвращаем все вхождения отдельно
+        # чтобы временная шкала могла показать все повторения
+        contract_items_final = []
+        for video_id, item_data in contract_items_grouped.items():
+            # Добавляем все вхождения контрактного видео
+            for occurrence in item_data['occurrences']:
+                contract_items_final.append({
+                    'video_id': video_id,
+                    'start_time': occurrence['start_time'],
+                    'end_time': occurrence['end_time'],
+                    'duration': occurrence['duration'],
+                    'frequency': item_data['frequency'],  # Общее количество повторений
+                    'file_path': occurrence['file_path'],
+                    'media_url': occurrence['media_url'],
+                })
+        
+        # Сортируем по времени начала
+        contract_items_final.sort(key=lambda x: x['start_time'])
         
         # Преобразовать филлеры в список
         filler_items = [
@@ -416,4 +448,4 @@ class PlaylistService:
             for vid, info in filler_items_dict.items()
         ]
         
-        return contract_items, filler_items
+        return contract_items_final, filler_items
