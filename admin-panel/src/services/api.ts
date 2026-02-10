@@ -61,7 +61,12 @@ export const videosApi = {
     api.post<Video>('/videos', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
-  update: (id: number, data: Partial<Video>) => api.put<Video>(`/videos/${id}`, data),
+  update: (id: number, data: Partial<Video> & { tariffs?: string[] }) => {
+    // Backend ожидает tariffs как массив строк
+    const updateData: any = { ...data };
+    // tariffs уже должен быть массивом, отправляем как есть
+    return api.put<Video>(`/videos/${id}`, updateData);
+  },
   delete: (id: number) => api.delete(`/videos/${id}`),
 };
 

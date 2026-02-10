@@ -33,7 +33,7 @@ services:
     command: uvicorn app.main:app --host ${HOST} --port ${PORT} --reload
     volumes:
       - .:/app
-      - ./uploads:/app/uploads
+      - ${UPLOADS_VOLUME_PATH:-./uploads}:/app/uploads
     ports:
       - "${PORT}:8000"
     depends_on:

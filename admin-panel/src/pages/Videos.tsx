@@ -25,6 +25,7 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
+  Edit as EditIcon,
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
   Upload as UploadIcon,
@@ -43,15 +44,17 @@ const tariffs = ['standard', 'comfort', 'business', 'premium'];
 export default function Videos() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingVideo, setEditingVideo] = useState<Video | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const { enqueueSnackbar } = useSnackbar();
 
   const [formData, setFormData] = useState({
     title: '',
-    video_type: 'filler',
+    video_type: 'filler' as 'filler' | 'contract',
     plays_per_hour: 1,
-    tariffs: ['standard'],
+    tariffs: ['standard'] as string[],
     priority: 0,
+    is_active: true,
   });
 
   useEffect(() => {
@@ -67,20 +70,36 @@ export default function Videos() {
     }
   };
 
-  const handleOpenDialog = () => {
-    setFormData({
-      title: '',
-      video_type: 'filler',
-      plays_per_hour: 1,
-      tariffs: ['standard'],
-      priority: 0,
-    });
-    setSelectedFile(null);
+  const handleOpenDialog = (video?: Video) => {
+    if (video) {
+      setEditingVideo(video);
+      setFormData({
+        title: video.title,
+        video_type: video.video_type,
+        plays_per_hour: video.plays_per_hour || 1,
+        tariffs: video.tariffs ? video.tariffs.split(',') : ['standard'],
+        priority: video.priority,
+        is_active: video.is_active,
+      });
+      setSelectedFile(null);
+    } else {
+      setEditingVideo(null);
+      setFormData({
+        title: '',
+        video_type: 'filler',
+        plays_per_hour: 1,
+        tariffs: ['standard'],
+        priority: 0,
+        is_active: true,
+      });
+      setSelectedFile(null);
+    }
     setDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
+    setEditingVideo(null);
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,29 +109,53 @@ export default function Videos() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedFile) {
-      enqueueSnackbar('Выберите видеофайл', { variant: 'warning' });
-      return;
-    }
-
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('file', selectedFile);
-      formDataToSend.append('title', formData.title);
-      formDataToSend.append('video_type', formData.video_type);
-      formDataToSend.append('tariffs', JSON.stringify(formData.tariffs));
-      formDataToSend.append('priority', formData.priority.toString());
-      
-      if (formData.video_type === 'contract') {
-        formDataToSend.append('plays_per_hour', formData.plays_per_hour.toString());
-      }
+      if (editingVideo) {
+        // Обновление существующего видео
+        const updateData: any = {
+          title: formData.title,
+          video_type: formData.video_type,
+          tariffs: formData.tariffs,
+          priority: formData.priority,
+          is_active: formData.is_active,
+        };
+        
+        if (formData.video_type === 'contract') {
+          updateData.plays_per_hour = formData.plays_per_hour;
+        } else {
+          updateData.plays_per_hour = null;
+        }
 
-      await videosApi.create(formDataToSend);
-      enqueueSnackbar('Видео загружено', { variant: 'success' });
+        await videosApi.update(editingVideo.id, updateData);
+        enqueueSnackbar('Видео обновлено', { variant: 'success' });
+      } else {
+        // Создание нового видео
+        if (!selectedFile) {
+          enqueueSnackbar('Выберите видеофайл', { variant: 'warning' });
+          return;
+        }
+
+        const formDataToSend = new FormData();
+        formDataToSend.append('file', selectedFile);
+        formDataToSend.append('title', formData.title);
+        formDataToSend.append('video_type', formData.video_type);
+        formDataToSend.append('tariffs', JSON.stringify(formData.tariffs));
+        formDataToSend.append('priority', formData.priority.toString());
+        
+        if (formData.video_type === 'contract') {
+          formDataToSend.append('plays_per_hour', formData.plays_per_hour.toString());
+        }
+
+        await videosApi.create(formDataToSend);
+        enqueueSnackbar('Видео загружено', { variant: 'success' });
+      }
+      
       handleCloseDialog();
       loadVideos();
-    } catch (error) {
-      enqueueSnackbar('Ошибка загрузки видео', { variant: 'error' });
+    } catch (error: any) {
+      console.error('Error saving video:', error);
+      const message = error.response?.data?.detail || (editingVideo ? 'Ошибка обновления видео' : 'Ошибка загрузки видео');
+      enqueueSnackbar(message, { variant: 'error' });
     }
   };
 
@@ -209,6 +252,13 @@ export default function Videos() {
                     />
                   </TableCell>
                   <TableCell align="right">
+                    <IconButton
+                      size="small"
+                      onClick={() => handleOpenDialog(video)}
+                      sx={{ mr: 1 }}
+                    >
+                      <EditIcon />
+                    </IconButton>
                     <IconButton size="small" onClick={() => handleDelete(video.id)}>
                       <DeleteIcon />
                     </IconButton>
@@ -221,7 +271,9 @@ export default function Videos() {
       </TableContainer>
 
       <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Загрузить видео</DialogTitle>
+        <DialogTitle>
+          {editingVideo ? 'Редактировать видео' : 'Загрузить видео'}
+        </DialogTitle>
         <DialogContent>
           <TextField
             fullWidth
@@ -236,7 +288,7 @@ export default function Videos() {
             select
             label="Тип видео"
             value={formData.video_type}
-            onChange={(e) => setFormData({ ...formData, video_type: e.target.value })}
+            onChange={(e) => setFormData({ ...formData, video_type: e.target.value as 'filler' | 'contract' })}
             margin="normal"
           >
             {videoTypes.map((option) => (
@@ -286,21 +338,37 @@ export default function Videos() {
             margin="normal"
           />
 
-          <Button
-            fullWidth
-            variant="outlined"
-            component="label"
-            startIcon={<UploadIcon />}
-            sx={{ mt: 2 }}
-          >
-            {selectedFile ? selectedFile.name : 'Выбрать видеофайл'}
-            <input type="file" hidden accept="video/*" onChange={handleFileChange} />
-          </Button>
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Статус</InputLabel>
+            <Select
+              value={formData.is_active ? 'active' : 'inactive'}
+              onChange={(e) =>
+                setFormData({ ...formData, is_active: e.target.value === 'active' })
+              }
+              input={<OutlinedInput label="Статус" />}
+            >
+              <MenuItem value="active">Активно</MenuItem>
+              <MenuItem value="inactive">Неактивно</MenuItem>
+            </Select>
+          </FormControl>
+
+          {!editingVideo && (
+            <Button
+              fullWidth
+              variant="outlined"
+              component="label"
+              startIcon={<UploadIcon />}
+              sx={{ mt: 2 }}
+            >
+              {selectedFile ? selectedFile.name : 'Выбрать видеофайл'}
+              <input type="file" hidden accept="video/*" onChange={handleFileChange} />
+            </Button>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Отмена</Button>
           <Button onClick={handleSubmit} variant="contained">
-            Загрузить
+            {editingVideo ? 'Сохранить' : 'Загрузить'}
           </Button>
         </DialogActions>
       </Dialog>
