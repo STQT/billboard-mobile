@@ -21,6 +21,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Video? _currentVideo;
   bool _isDisposing = false;
   VoidCallback? _videoEndListener;
+  Set<int> _failedVideoIds = {}; // Отслеживание видео, которые не удалось воспроизвести
 
   @override
   void initState() {
@@ -32,16 +33,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     final videoService = context.read<VideoService>();
     final analyticsService = context.read<AnalyticsService>();
 
-    // Начать сессию
-    await analyticsService.startSession();
+    try {
+      // Начать сессию
+      await analyticsService.startSession();
 
-    // Загрузить плейлист
-    await videoService.loadPlaylist();
+      // Загрузить плейлист
+      await videoService.loadPlaylist();
 
-    // Начать воспроизведение первого видео
-    await _playCurrentVideo();
+      // Сбросить список неудачных видео при загрузке нового плейлиста
+      _failedVideoIds.clear();
 
-    setState(() => _isInitializing = false);
+      // Начать воспроизведение первого видео
+      await _playCurrentVideo();
+    } catch (e) {
+      debugPrint('Error initializing video player: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isInitializing = false);
+      }
+    }
   }
 
   Future<void> _playCurrentVideo() async {
@@ -50,11 +60,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     final videoService = context.read<VideoService>();
     final analyticsService = context.read<AnalyticsService>();
 
-    final video = videoService.currentVideo;
-    if (video == null) return;
+    // Найти следующее доступное видео (пропуская те, что уже не удалось воспроизвести)
+    Video? video = _findNextPlayableVideo(videoService);
+    
+    if (video == null) {
+      debugPrint('No playable videos found. All videos failed or playlist is empty.');
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+      }
+      return;
+    }
 
-    // Логировать предыдущее видео если было
-    if (_currentVideo != null) {
+    // Логировать предыдущее видео если было (и оно было успешно воспроизведено)
+    if (_currentVideo != null && 
+        _currentVideo!.id != video.id && 
+        !_failedVideoIds.contains(_currentVideo!.id)) {
       await analyticsService.logVideoPlayback(
         videoId: _currentVideo!.id,
         completed: true,
@@ -95,6 +117,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       
       if (_isDisposing || !mounted || _controller == null) return;
       
+      // Проверить что видео действительно инициализировано
+      if (!_controller!.value.isInitialized) {
+        throw Exception('Video controller not initialized properly');
+      }
+      
       _controller!.setLooping(false);
       _controller!.play();
 
@@ -109,12 +136,34 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       };
       _controller!.addListener(_videoEndListener!);
 
+      // Успешно воспроизводится - убрать из списка неудачных если был там
+      _failedVideoIds.remove(video.id);
+
       if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('Error initializing video: $e');
-      if (mounted) {
+      debugPrint('Error initializing video ${video.id} (${video.title}): $e');
+      
+      // Проверить тип ошибки
+      final errorString = e.toString().toLowerCase();
+      final isFormatError = errorString.contains('format') || 
+                            errorString.contains('codec') || 
+                            errorString.contains('not supported') ||
+                            errorString.contains('osstatus') ||
+                            errorString.contains('-12847') ||
+                            errorString.contains('cannot open');
+      
+      if (isFormatError) {
+        debugPrint('Video format not supported by iOS, marking as failed and skipping');
+        _failedVideoIds.add(video.id);
+      }
+      
+      // Очистить controller
+      await _controller?.dispose();
+      _controller = null;
+      
+      if (mounted && !_isDisposing) {
         // Попробовать следующее видео при ошибке
-        Future.delayed(const Duration(seconds: 2), () {
+        Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted && !_isDisposing) {
             videoService.nextVideo();
             _playCurrentVideo();
@@ -124,10 +173,54 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     }
   }
 
+  /// Найти следующее видео, которое можно воспроизвести
+  Video? _findNextPlayableVideo(VideoService videoService) {
+    final videos = videoService.videos;
+    if (videos.isEmpty) return null;
+    
+    final startIndex = videoService.currentVideoIndex;
+    int attempts = 0;
+    final maxAttempts = videos.length * 2; // Даем два полных прохода по плейлисту
+    
+    // Попробовать найти видео, которое еще не было помечено как неудачное
+    while (attempts < maxAttempts) {
+      final index = (startIndex + attempts) % videos.length;
+      final video = videos[index];
+      
+      if (!_failedVideoIds.contains(video.id)) {
+        // Установить индекс на найденное видео
+        while (videoService.currentVideoIndex != index && attempts < maxAttempts) {
+          videoService.nextVideo();
+          attempts++;
+        }
+        return video;
+      }
+      
+      attempts++;
+    }
+    
+    // Если все видео были неудачными, попробовать первое доступное
+    if (videos.isNotEmpty) {
+      debugPrint('All videos marked as failed, trying first video anyway');
+      return videos[0];
+    }
+    
+    return null;
+  }
+
   void _onVideoEnded() {
     if (_isDisposing || !mounted) return;
     
     final videoService = context.read<VideoService>();
+    final analyticsService = context.read<AnalyticsService>();
+    
+    // Логировать завершение текущего видео
+    if (_currentVideo != null) {
+      analyticsService.logVideoPlayback(
+        videoId: _currentVideo!.id,
+        completed: true,
+      );
+    }
     
     // Переключиться на следующее видео
     videoService.nextVideo();
@@ -240,9 +333,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                 style: const TextStyle(color: Colors.white70, fontSize: 14),
               ),
               if (video != null)
-                Text(
-                  'Видео: ${video.title}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Видео: ${video.title}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    if (_failedVideoIds.isNotEmpty)
+                      Text(
+                        'Пропущено видео: ${_failedVideoIds.length}',
+                        style: const TextStyle(color: Colors.orange, fontSize: 10),
+                      ),
+                  ],
                 ),
             ],
           ),

@@ -49,8 +49,8 @@ class VideoService extends ChangeNotifier {
   Future<void> _loadVideos() async {
     if (_currentPlaylist == null) return;
 
-    // Получить уникальные ID видео
-    final uniqueVideoIds = _currentPlaylist!.videoSequence.toSet().toList();
+    // Получить уникальные ID видео (контрактные + филлеры)
+    final uniqueVideoIds = _currentPlaylist!.allVideoIds.toSet().toList();
 
     // Загрузить информацию о каждом видео
     final videoFutures = uniqueVideoIds.map((id) => _apiService.getVideo(id));
@@ -63,10 +63,21 @@ class VideoService extends ChangeNotifier {
       videoMap[video.id] = video;
     }
 
-    // Создать упорядоченный список видео по плейлисту
-    _videos = _currentPlaylist!.videoSequence
-        .map((id) => videoMap[id]!)
+    // Построить упорядоченный список видео на основе временной шкалы
+    // Сначала добавляем контрактные видео в порядке их времени начала
+    final contractVideos = _currentPlaylist!.contractVideos
+        .map((cv) => videoMap[cv.videoId]!)
         .toList();
+    
+    // Затем добавляем филлеры
+    final fillerVideos = _currentPlaylist!.fillerVideos
+        .map((fv) => videoMap[fv.videoId]!)
+        .toList();
+    
+    // Объединяем: сначала контрактные, потом филлеры
+    // Flutter приложение будет использовать контрактные видео по их временным меткам,
+    // а филлеры заполнять в промежутках
+    _videos = [...contractVideos, ...fillerVideos];
 
     // Начать кеширование видео в фоне
     _cacheVideos();

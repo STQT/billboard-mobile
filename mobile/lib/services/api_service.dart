@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://walking-loops-issues-pillow.trycloudflare.com/api/v1'; // Изменить на реальный URL
+  static const String baseUrl = 'https://billboard.leetcode.uz/api/v1'; // Изменить на реальный URL
   
   late Dio _dio;
   String? _token;

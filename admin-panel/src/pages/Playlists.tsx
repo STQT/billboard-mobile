@@ -162,41 +162,19 @@ export default function Playlists() {
     );
   }, [videosMap, selectedTariff, selectedVehicle, viewMode]);
 
-  // Вычислить временную шкалу плейлиста
+  // Вычислить временную шкалу плейлиста на основе контрактных видео
   const timeline = useMemo(() => {
-    if (!playlist || !playlist.video_sequence.length) return [];
+    if (!playlist || !playlist.contract_videos.length) return [];
 
-    const timelineItems: Array<{
-      videoId: number;
-      video: Video | undefined;
-      startTime: number;
-      endTime: number;
-      duration: number;
-      index: number;
-    }> = [];
-
-    let currentTime = 0;
-    const maxTime = 3600; // 1 час в секундах
-
-    playlist.video_sequence.forEach((videoId, index) => {
-      const video = videosMap[videoId];
-      const duration = video?.duration || 0;
-
-      if (duration > 0 && currentTime < maxTime) {
-        const endTime = Math.min(currentTime + duration, maxTime);
-        timelineItems.push({
-          videoId,
-          video,
-          startTime: currentTime,
-          endTime,
-          duration: endTime - currentTime,
-          index,
-        });
-        currentTime = endTime;
-      }
-    });
-
-    return timelineItems;
+    return playlist.contract_videos.map((cv) => ({
+      videoId: cv.video_id,
+      video: videosMap[cv.video_id],
+      startTime: cv.start_time,
+      endTime: cv.end_time,
+      duration: cv.duration,
+      frequency: cv.frequency,
+      isContract: true,
+    }));
   }, [playlist, videosMap]);
 
   const formatTime = (seconds: number) => {
@@ -334,10 +312,18 @@ export default function Playlists() {
                   </Grid>
                   <Grid item xs={12} sm={6} md={3}>
                     <Typography variant="body2" color="textSecondary">
-                      Видео в плейлисте
+                      Контрактные видео
                     </Typography>
                     <Typography variant="body1">
-                      <Chip label={playlist.video_sequence.length} size="small" />
+                      <Chip label={playlist.contract_videos.length} size="small" color="primary" />
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Typography variant="body2" color="textSecondary">
+                      Филлеры
+                    </Typography>
+                    <Typography variant="body1">
+                      <Chip label={playlist.filler_videos.length} size="small" color="warning" />
                     </Typography>
                   </Grid>
                 </Grid>
@@ -346,14 +332,13 @@ export default function Playlists() {
                 </Typography>
                 <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
                   <Box sx={{ position: 'relative', height: 120, bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                    {timeline.map((item) => {
+                    {timeline.map((item, idx) => {
                       const widthPercent = (item.duration / 3600) * 100;
                       const leftPercent = (item.startTime / 3600) * 100;
-                      const isContract = item.video?.video_type === 'contract';
                       
                       return (
                         <Tooltip
-                          key={`${item.index}-${item.videoId}`}
+                          key={`${item.videoId}-${idx}`}
                           title={
                             <Box>
                               <Typography variant="body2" fontWeight="bold">
@@ -366,10 +351,10 @@ export default function Playlists() {
                                 Длительность: {formatTime(item.duration)}
                               </Typography>
                               <Typography variant="caption" display="block">
-                                Тип: {isContract ? 'Контрактное' : 'Филлер'}
+                                Частота повторений: {item.frequency} раз
                               </Typography>
                               <Typography variant="caption" display="block">
-                                Позиция в плейлисте: #{item.index + 1}
+                                Тип: Контрактное
                               </Typography>
                             </Box>
                           }
@@ -381,9 +366,9 @@ export default function Playlists() {
                               left: `${leftPercent}%`,
                               width: `${widthPercent}%`,
                               height: '100%',
-                              bgcolor: isContract ? '#1976d2' : '#ed6c02',
+                              bgcolor: '#1976d2',
                               border: '1px solid',
-                              borderColor: isContract ? '#1565c0' : '#e65100',
+                              borderColor: '#1565c0',
                               cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
@@ -411,7 +396,7 @@ export default function Playlists() {
                                   px: 0.5,
                                 }}
                               >
-                                #{item.index + 1}
+                                #{idx + 1}
                               </Typography>
                             )}
                           </Box>
@@ -460,37 +445,39 @@ export default function Playlists() {
                 </Paper>
 
                 <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-                  Порядок воспроизведения (ID видео):
+                  Контрактные видео с временными метками:
                 </Typography>
-                <Paper variant="outlined" sx={{ maxHeight: 320, overflow: 'auto' }}>
+                <Paper variant="outlined" sx={{ maxHeight: 320, overflow: 'auto', mb: 3 }}>
                   <List dense>
-                    {playlist.video_sequence.slice(0, 100).map((videoId, index) => {
-                      const video = videosMap[videoId];
-                      // Найти соответствующий элемент временной шкалы по индексу
-                      const timelineItem = timeline[index];
+                    {playlist.contract_videos.map((cv, index) => {
+                      const video = videosMap[cv.video_id];
                       
                       return (
-                        <ListItem key={`${index}-${videoId}`}>
+                        <ListItem key={`contract-${cv.video_id}-${index}`}>
                           <ListItemText
                             primary={
                               <Box display="flex" alignItems="center" gap={1}>
-                                <span>{index + 1}. {video?.title || `Видео #${videoId}`}</span>
-                                {video?.video_type === 'contract' && (
-                                  <Chip label="Контракт" size="small" color="primary" />
-                                )}
-                                {video?.video_type === 'filler' && (
-                                  <Chip label="Филлер" size="small" color="warning" />
+                                <span>{index + 1}. {video?.title || `Видео #${cv.video_id}`}</span>
+                                <Chip label="Контракт" size="small" color="primary" />
+                                {cv.frequency > 1 && (
+                                  <Chip label={`×${cv.frequency}`} size="small" color="secondary" />
                                 )}
                               </Box>
                             }
                             secondary={
                               <Box>
-                                ID: {videoId}
-                                {timelineItem && (
-                                  <span> • {formatTime(timelineItem.startTime)} - {formatTime(timelineItem.endTime)}</span>
+                                ID: {cv.video_id}
+                                <span> • {formatTime(cv.start_time)} - {formatTime(cv.end_time)}</span>
+                                <span> • Длительность: {formatTime(cv.duration)}</span>
+                                {cv.frequency > 1 && (
+                                  <span> • Повторений: {cv.frequency}</span>
                                 )}
-                                {video?.duration && (
-                                  <span> • Длительность: {formatTime(video.duration)}</span>
+                                {cv.media_url && (
+                                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                                    <a href={cv.media_url} target="_blank" rel="noopener noreferrer">
+                                      {cv.media_url}
+                                    </a>
+                                  </Typography>
                                 )}
                               </Box>
                             }
@@ -498,11 +485,51 @@ export default function Playlists() {
                         </ListItem>
                       );
                     })}
-                    {playlist.video_sequence.length > 100 && (
+                    {playlist.contract_videos.length === 0 && (
                       <ListItem>
-                        <ListItemText
-                          secondary={`... и ещё ${playlist.video_sequence.length - 100} видео`}
-                        />
+                        <ListItemText secondary="Нет контрактных видео в плейлисте" />
+                      </ListItem>
+                    )}
+                  </List>
+                </Paper>
+
+                <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                  Доступные филлеры (для заполнения промежутков):
+                </Typography>
+                <Paper variant="outlined" sx={{ maxHeight: 320, overflow: 'auto' }}>
+                  <List dense>
+                    {playlist.filler_videos.map((fv, index) => {
+                      const video = videosMap[fv.video_id];
+                      
+                      return (
+                        <ListItem key={`filler-${fv.video_id}-${index}`}>
+                          <ListItemText
+                            primary={
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <span>{index + 1}. {video?.title || `Видео #${fv.video_id}`}</span>
+                                <Chip label="Филлер" size="small" color="warning" />
+                              </Box>
+                            }
+                            secondary={
+                              <Box>
+                                ID: {fv.video_id}
+                                <span> • Длительность: {formatTime(fv.duration)}</span>
+                                {fv.media_url && (
+                                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                                    <a href={fv.media_url} target="_blank" rel="noopener noreferrer">
+                                      {fv.media_url}
+                                    </a>
+                                  </Typography>
+                                )}
+                              </Box>
+                            }
+                          />
+                        </ListItem>
+                      );
+                    })}
+                    {playlist.filler_videos.length === 0 && (
+                      <ListItem>
+                        <ListItemText secondary="Нет филлеров в плейлисте" />
                       </ListItem>
                     )}
                   </List>

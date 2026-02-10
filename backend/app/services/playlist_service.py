@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple, Dict
 import json
 import random
+from collections import Counter
 from app.models.models import Video, VideoType, VehicleTariff, Playlist
 from app.core.config import settings
 
@@ -257,3 +258,130 @@ class PlaylistService:
         ).order_by(Playlist.created_at.desc()).first()
         
         return playlist
+    
+    @staticmethod
+    def build_playlist_timeline(
+        db: Session, 
+        playlist: Playlist,
+        base_url: Optional[str] = None
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Построить временную шкалу плейлиста.
+        
+        Args:
+            db: Сессия базы данных
+            playlist: Плейлист из БД
+            base_url: Базовый URL для медиа файлов (если None, будет использован из настроек)
+        
+        Returns:
+            Tuple[List[Dict], List[Dict]]: 
+                - Список контрактных видео с временными метками (группированные по ID с частотой)
+                - Список филлеров с длительностью и URL
+        """
+        video_sequence = json.loads(playlist.video_sequence)
+        
+        if not video_sequence:
+            return [], []
+        
+        # Получить информацию о всех видео
+        video_ids = set(video_sequence)
+        videos = db.query(Video).filter(Video.id.in_(video_ids)).all()
+        video_map = {v.id: v for v in videos}
+        
+        # Разделить на контрактные и филлеры
+        contract_video_ids = {
+            v.id for v in videos 
+            if v.video_type == VideoType.CONTRACT and v.is_active
+        }
+        
+        # Подсчитать частоту повторений контрактных видео
+        contract_frequency = Counter(
+            vid for vid in video_sequence 
+            if vid in contract_video_ids
+        )
+        
+        # Формировать базовый URL для медиа файлов
+        if base_url is None:
+            base_url = settings.BASE_URL
+        if base_url is None:
+            # Если BASE_URL не задан, используем относительный путь
+            # Клиент сам добавит свой базовый URL
+            base_url = ""
+        
+        # Вычислить временные метки для контрактных видео
+        # Контрактные видео размещаются последовательно по времени,
+        # филлеры используются для заполнения промежутков
+        contract_items = []
+        filler_items_dict: Dict[int, Dict] = {}  # video_id -> {duration, file_path}
+        
+        current_time = 0.0
+        max_time = 3600.0  # 1 час
+        
+        # Сначала собираем информацию о филлерах
+        for video_id in video_sequence:
+            video = video_map.get(video_id)
+            if not video or not video.is_active:
+                continue
+            
+            duration = video.duration or 0
+            if duration <= 0:
+                continue
+            
+            if video_id not in contract_video_ids:
+                # Филлер - собираем информацию о длительности и пути
+                if video_id not in filler_items_dict:
+                    media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
+                    filler_items_dict[video_id] = {
+                        'duration': duration,
+                        'file_path': video.file_path,
+                        'media_url': media_url,
+                    }
+        
+        # Теперь вычисляем временные метки для контрактных видео
+        # Группируем по ID и считаем частоту
+        # Временная шкала показывает только первое воспроизведение, частота указывается отдельно
+        contract_videos_processed = set()
+        
+        for video_id in video_sequence:
+            video = video_map.get(video_id)
+            if not video or not video.is_active:
+                continue
+            
+            duration = video.duration or 0
+            if duration <= 0:
+                continue
+            
+            if video_id in contract_video_ids and video_id not in contract_videos_processed:
+                # Контрактное видео - добавляем с временными метками
+                # Временная шкала показывает только первое воспроизведение
+                frequency = contract_frequency[video_id]
+                end_time = min(current_time + duration, max_time)
+                
+                media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
+                
+                contract_items.append({
+                    'video_id': video_id,
+                    'start_time': current_time,
+                    'end_time': end_time,
+                    'duration': duration,  # Длительность одного воспроизведения
+                    'frequency': frequency,  # Количество повторений в плейлисте
+                    'file_path': video.file_path,
+                    'media_url': media_url,
+                })
+                # Перемещаем время только на одно воспроизведение
+                # Flutter приложение само будет повторять видео нужное количество раз
+                current_time = end_time
+                contract_videos_processed.add(video_id)
+        
+        # Преобразовать филлеры в список
+        filler_items = [
+            {
+                'video_id': vid,
+                'duration': info['duration'],
+                'file_path': info['file_path'],
+                'media_url': info['media_url'],
+            }
+            for vid, info in filler_items_dict.items()
+        ]
+        
+        return contract_items, filler_items

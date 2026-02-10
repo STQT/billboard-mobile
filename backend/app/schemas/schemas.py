@@ -129,11 +129,35 @@ class PlaybackLogResponse(BaseModel):
 
 
 # Playlist Schemas
+class ContractVideoItem(BaseModel):
+    """Контрактное видео с временными метками"""
+    video_id: int
+    start_time: float  # Время начала в секундах от начала часа (0-3600)
+    end_time: float    # Время окончания в секундах от начала часа (0-3600)
+    duration: float    # Длительность в секундах
+    frequency: int = 1  # Количество повторений этого видео в плейлисте
+    file_path: str      # Путь к файлу (например, /videos/filename.mp4)
+    media_url: str      # Полный URL для доступа к медиа файлу
+
+
+class FillerVideoItem(BaseModel):
+    """Филлерное видео с информацией"""
+    video_id: int
+    duration: float    # Длительность в секундах
+    file_path: str     # Путь к файлу (например, /videos/filename.mp4)
+    media_url: str     # Полный URL для доступа к медиа файлу
+
+
 class PlaylistResponse(BaseModel):
     id: int
     vehicle_id: Optional[int] = None  # None для плейлиста по тарифу
     tariff: VehicleTariff
-    video_sequence: List[int]
+    # Контрактные видео с временными метками
+    contract_videos: List[ContractVideoItem]
+    # Список филлеров с длительностью
+    filler_videos: List[FillerVideoItem]
+    # Общая длительность плейлиста в секундах (3600 для часового плейлиста)
+    total_duration: float = 3600.0
     valid_from: datetime
     valid_until: datetime
     created_at: datetime

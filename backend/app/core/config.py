@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = True  # Режим отладки (включает автоперезагрузку)
     
+    # Base URL for media files (можно переопределить через .env)
+    BASE_URL: Optional[str] = None  # Если None, будет формироваться автоматически
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

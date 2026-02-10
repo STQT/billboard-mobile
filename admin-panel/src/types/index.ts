@@ -24,11 +24,30 @@ export interface Video {
   created_at: string;
 }
 
+export interface ContractVideoItem {
+  video_id: number;
+  start_time: number;  // Время начала в секундах от начала часа (0-3600)
+  end_time: number;    // Время окончания в секундах от начала часа (0-3600)
+  duration: number;    // Длительность в секундах
+  frequency: number;   // Количество повторений этого видео в плейлисте
+  file_path: string;   // Путь к файлу (например, /videos/filename.mp4)
+  media_url: string;   // Полный URL для доступа к медиа файлу
+}
+
+export interface FillerVideoItem {
+  video_id: number;
+  duration: number;    // Длительность в секундах
+  file_path: string;   // Путь к файлу (например, /videos/filename.mp4)
+  media_url: string;   // Полный URL для доступа к медиа файлу
+}
+
 export interface Playlist {
   id: number;
   vehicle_id: number | null;  // null для плейлиста по тарифу
   tariff: string;
-  video_sequence: number[];
+  contract_videos: ContractVideoItem[];
+  filler_videos: FillerVideoItem[];
+  total_duration: number;  // Общая длительность плейлиста в секундах (3600 для часового)
   valid_from: string;
   valid_until: string;
   created_at: string;
