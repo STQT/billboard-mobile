@@ -105,12 +105,12 @@ export default function Vehicles() {
 
   const handleSubmit = async () => {
     try {
-      if (editingVehicle) {
+      if (editingVehicle && editingVehicle.id) {
         // При обновлении отправляем только заполненные поля, пароль опционален
         const updateData: any = {
           login: formData.login,
           car_number: formData.car_number,
-          tariff: formData.tariff,
+          tariff: formData.tariff as 'standard' | 'comfort' | 'business' | 'premium',
           driver_name: formData.driver_name || null,
           phone: formData.phone || null,
         };
@@ -126,7 +126,10 @@ export default function Vehicles() {
           enqueueSnackbar('Пароль обязателен для нового автомобиля', { variant: 'warning' });
           return;
         }
-        await vehiclesApi.create(formData);
+        await vehiclesApi.create({
+          ...formData,
+          tariff: formData.tariff as 'standard' | 'comfort' | 'business' | 'premium',
+        });
         enqueueSnackbar('Автомобиль создан', { variant: 'success' });
       }
       handleCloseDialog();

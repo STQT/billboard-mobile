@@ -9,7 +9,7 @@ import type {
 } from '../types';
 
 // Backend API на порту 8000; в production задать VITE_API_URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -27,12 +27,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Vehicle update/create types that include password
+interface VehicleCreateData extends Partial<Vehicle> {
+  password: string;
+}
+
+interface VehicleUpdateData extends Partial<Vehicle> {
+  password?: string;
+}
+
 // Vehicles
 export const vehiclesApi = {
   getAll: () => api.get<Vehicle[]>('/vehicles'),
   getById: (id: number) => api.get<Vehicle>(`/vehicles/${id}`),
-  create: (data: Partial<Vehicle>) => api.post<Vehicle>('/auth/register', data),
-  update: (id: number, data: Partial<Vehicle>) => {
+  create: (data: VehicleCreateData) => api.post<Vehicle>('/auth/register', data),
+  update: (id: number, data: VehicleUpdateData) => {
     // Для обновления пароль опционален
     const updateData = { ...data };
     if (!updateData.password) {

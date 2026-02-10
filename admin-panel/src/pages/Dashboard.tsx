@@ -11,7 +11,6 @@ import {
   DirectionsCar,
   VideoLibrary,
   PlayCircle,
-  AttachMoney,
 } from '@mui/icons-material';
 import { analyticsApi } from '../services/api';
 import type { DashboardStats } from '../types';

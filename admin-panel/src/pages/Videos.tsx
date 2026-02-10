@@ -25,7 +25,6 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Edit as EditIcon,
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
   Upload as UploadIcon,
@@ -43,7 +42,6 @@ const tariffs = ['standard', 'comfort', 'business', 'premium'];
 
 export default function Videos() {
   const [videos, setVideos] = useState<Video[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const { enqueueSnackbar } = useSnackbar();
@@ -66,8 +64,6 @@ export default function Videos() {
       setVideos(response.data);
     } catch (error) {
       enqueueSnackbar('Ошибка загрузки видео', { variant: 'error' });
-    } finally {
-      setLoading(false);
     }
   };
 
