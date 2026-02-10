@@ -568,15 +568,6 @@ export default function Playlists() {
       )}
 
       {viewMode === 'vehicle' && !loadingVehicles && vehicles.length === 0 && (
-          ) : (
-            <Alert severity="warning">
-              Плейлист не найден. Нажмите «Сгенерировать новый плейлист».
-            </Alert>
-          )}
-        </>
-      )}
-
-      {viewMode === 'vehicle' && !loadingVehicles && vehicles.length === 0 && (
         <Alert severity="info">
           Сначала добавьте автомобили в разделе «Автомобили».
         </Alert>
