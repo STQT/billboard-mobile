@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # File Storage
     UPLOAD_DIR: str = "./uploads/videos"
     MAX_VIDEO_SIZE_MB: int = 500
+    UPLOADS_VOLUME_PATH: str = "./uploads"
     
     # Prime Time (час пик)
     PRIME_TIME_START: int = 18  # 18:00
