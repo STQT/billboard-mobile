@@ -3,10 +3,17 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
-    # Database
+    # PostgreSQL (используются в docker-compose.yml)
+    POSTGRES_USER: Optional[str] = "billboard_user"
+    POSTGRES_PASSWORD: Optional[str] = "billboard_pass"
+    POSTGRES_DB: Optional[str] = "billboard_db"
+    POSTGRES_PORT: Optional[int] = 5432
+    
+    # Database URL для приложения
     DATABASE_URL: str = "postgresql://billboard_user:billboard_pass@localhost:5432/billboard_db"
     
     # Redis
+    REDIS_PORT: Optional[int] = 6379
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # JWT
@@ -30,6 +37,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # extra = "ignore"  # Игнорировать дополнительные переменные из .env
 
 
 settings = Settings()
