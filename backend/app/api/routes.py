@@ -363,14 +363,19 @@ def get_current_playlist(
     db: Session = Depends(get_db)
 ):
     """Получить текущий плейлист для автомобиля"""
-    playlist = PlaylistService.get_active_playlist(db, current_vehicle.id)
+    # Ищем сначала индивидуальный плейлист, потом общий по тарифу
+    playlist = PlaylistService.get_active_playlist(
+        db, 
+        current_vehicle.tariff, 
+        current_vehicle.id
+    )
     
     if not playlist:
-        # Создать новый плейлист на 24 часа
+        # Создать новый плейлист по тарифу (без vehicle_id)
         playlist = PlaylistService.create_playlist(
             db, 
-            current_vehicle.id, 
             current_vehicle.tariff,
+            vehicle_id=None,  # Общий плейлист по тарифу
             hours=24
         )
     
@@ -394,11 +399,11 @@ def regenerate_playlist(
     current_vehicle: Vehicle = Depends(get_current_vehicle),
     db: Session = Depends(get_db)
 ):
-    """Принудительно сгенерировать новый плейлист"""
+    """Принудительно сгенерировать новый плейлист по тарифу"""
     playlist = PlaylistService.create_playlist(
         db,
-        current_vehicle.id,
         current_vehicle.tariff,
+        vehicle_id=None,  # Общий плейлист по тарифу
         hours=hours
     )
     
@@ -424,10 +429,20 @@ def get_playlist_by_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     
-    playlist = PlaylistService.get_active_playlist(db, vehicle_id)
+    # Ищем сначала индивидуальный плейлист, потом общий по тарифу
+    playlist = PlaylistService.get_active_playlist(
+        db, 
+        vehicle.tariff, 
+        vehicle_id
+    )
+    
     if not playlist:
+        # Создать новый плейлист по тарифу (без vehicle_id)
         playlist = PlaylistService.create_playlist(
-            db, vehicle_id, vehicle.tariff, hours=24
+            db, 
+            vehicle.tariff,
+            vehicle_id=None,  # Общий плейлист по тарифу
+            hours=24
         )
     
     video_sequence = json.loads(playlist.video_sequence)
@@ -448,13 +463,43 @@ def admin_regenerate_playlist(
     hours: int = 24,
     db: Session = Depends(get_db)
 ):
-    """Сгенерировать новый плейлист для автомобиля (для админ панели)"""
+    """Сгенерировать новый плейлист по тарифу (для админ панели)"""
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     
+    # Создаем общий плейлист по тарифу
     playlist = PlaylistService.create_playlist(
-        db, vehicle_id, vehicle.tariff, hours=hours
+        db, 
+        vehicle.tariff,
+        vehicle_id=None,  # Общий плейлист по тарифу
+        hours=hours
+    )
+    video_sequence = json.loads(playlist.video_sequence)
+    return PlaylistResponse(
+        id=playlist.id,
+        vehicle_id=playlist.vehicle_id,
+        tariff=playlist.tariff,
+        video_sequence=video_sequence,
+        valid_from=playlist.valid_from,
+        valid_until=playlist.valid_until,
+        created_at=playlist.created_at
+    )
+
+
+@router.post("/playlists/tariff/{tariff}/regenerate", response_model=PlaylistResponse)
+def admin_regenerate_playlist_by_tariff(
+    tariff: VehicleTariff,
+    hours: int = 24,
+    db: Session = Depends(get_db)
+):
+    """Сгенерировать новый плейлист по тарифу (для админ панели)"""
+    # Создаем общий плейлист по тарифу
+    playlist = PlaylistService.create_playlist(
+        db, 
+        tariff,
+        vehicle_id=None,  # Общий плейлист по тарифу
+        hours=hours
     )
     video_sequence = json.loads(playlist.video_sequence)
     return PlaylistResponse(

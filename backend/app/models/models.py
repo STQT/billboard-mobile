@@ -122,12 +122,12 @@ class PlaybackLog(Base):
 
 
 class Playlist(Base):
-    """Сгенерированный плейлист для автомобиля"""
+    """Сгенерированный плейлист для тарифа или конкретного автомобиля"""
     __tablename__ = "playlists"
     
     id = Column(Integer, primary_key=True, index=True)
-    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=False)
-    tariff = Column(SQLEnum(VehicleTariff), nullable=False)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)  # NULL = плейлист по тарифу
+    tariff = Column(SQLEnum(VehicleTariff), nullable=False, index=True)
     
     # JSON с массивом ID видео в порядке воспроизведения
     video_sequence = Column(Text, nullable=False)  # JSON array: [1, 5, 3, 1, 2, ...]

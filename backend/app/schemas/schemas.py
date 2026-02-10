@@ -131,7 +131,7 @@ class PlaybackLogResponse(BaseModel):
 # Playlist Schemas
 class PlaylistResponse(BaseModel):
     id: int
-    vehicle_id: int
+    vehicle_id: Optional[int] = None  # None для плейлиста по тарифу
     tariff: VehicleTariff
     video_sequence: List[int]
     valid_from: datetime

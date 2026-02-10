@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 import json
+import random
 from app.models.models import Video, VideoType, VehicleTariff, Playlist
 from app.core.config import settings
 
@@ -10,24 +11,25 @@ class PlaylistService:
     """Сервис для генерации плейлистов"""
     
     @staticmethod
-    def generate_hourly_playlist(db: Session, tariff: VehicleTariff, vehicle_id: int) -> List[int]:
+    def generate_hourly_playlist(db: Session, tariff: VehicleTariff) -> List[int]:
         """
-        Генерация плейлиста на 1 час с учетом контрактных видео и филлеров
+        Генерация плейлиста на 1 час для тарифа
         
         Логика:
-        1. Получить все контрактные видео для данного тарифа
-        2. Рассчитать количество показов каждого контрактного видео в час
-        3. Заполнить оставшиеся слоты филлерами
+        1. Проверить есть ли контрактные видео для данного тарифа
+        2. Если есть - заполнить контрактными видео с нужной частотой
+        3. Если нет контрактных - заполнить филлерами в разброс (чтобы не повторялись подряд)
         4. Перемешать так, чтобы контрактные видео были равномерно распределены
         """
         
-        # Получить все активные видео для данного тарифа
+        # Получить все активные контрактные видео для данного тарифа
         contract_videos = db.query(Video).filter(
             Video.is_active == True,
             Video.video_type == VideoType.CONTRACT,
             Video.tariffs.contains(tariff.value)
         ).all()
         
+        # Получить все активные филлеры для данного тарифа
         filler_videos = db.query(Video).filter(
             Video.is_active == True,
             Video.video_type == VideoType.FILLER,
@@ -37,44 +39,123 @@ class PlaylistService:
         # Создать последовательность видео
         playlist_sequence = []
         
-        # Добавить контрактные видео с нужной частотой
-        for video in contract_videos:
-            plays = video.plays_per_hour or 1
-            for _ in range(plays):
-                playlist_sequence.append(video.id)
-        
-        # Рассчитать сколько времени займут контрактные видео
-        total_contract_duration = sum(
-            (video.duration or 0) * (video.plays_per_hour or 1) 
-            for video in contract_videos
-        )
-        
-        # Заполнить оставшееся время филлерами (примерно до 1 часа = 3600 секунд)
-        remaining_time = max(0, 3600 - total_contract_duration)
-        filler_index = 0
-        max_filler_slots = 5000  # защита от бесконечного цикла
-        
-        while remaining_time > 0 and filler_videos and len(playlist_sequence) < max_filler_slots:
-            video = filler_videos[filler_index % len(filler_videos)]
-            duration = video.duration or 0
-            if duration <= 0:
-                # без длительности не добавляем в цикл — избегаем бесконечного цикла
-                filler_index += 1
-                if filler_index >= len(filler_videos):
-                    break
-                continue
-            playlist_sequence.append(video.id)
-            remaining_time -= duration
-            filler_index += 1
-        
-        # Перемешать плейлист для равномерного распределения
-        # (простая стратегия - можно улучшить)
-        playlist_sequence = PlaylistService._distribute_evenly(
-            playlist_sequence, 
-            [v.id for v in contract_videos]
-        )
+        # Если есть контрактные видео - заполняем ими
+        if contract_videos:
+            # Добавить контрактные видео с нужной частотой
+            for video in contract_videos:
+                plays = video.plays_per_hour or 1
+                for _ in range(plays):
+                    playlist_sequence.append(video.id)
+            
+            # Рассчитать сколько времени займут контрактные видео
+            total_contract_duration = sum(
+                (video.duration or 0) * (video.plays_per_hour or 1) 
+                for video in contract_videos
+            )
+            
+            # Заполнить оставшееся время филлерами (примерно до 1 часа = 3600 секунд)
+            remaining_time = max(0, 3600 - total_contract_duration)
+            playlist_sequence = PlaylistService._fill_with_fillers(
+                playlist_sequence, 
+                filler_videos, 
+                remaining_time
+            )
+            
+            # Перемешать плейлист для равномерного распределения контрактных видео
+            playlist_sequence = PlaylistService._distribute_evenly(
+                playlist_sequence, 
+                [v.id for v in contract_videos]
+            )
+        else:
+            # Если нет контрактных видео - заполнить только филлерами в разброс
+            if not filler_videos:
+                return []  # Нет видео для плейлиста
+            
+            # Заполнить час филлерами (3600 секунд)
+            playlist_sequence = PlaylistService._fill_with_fillers(
+                [], 
+                filler_videos, 
+                3600,
+                shuffle=True  # В разброс, чтобы не повторялись подряд
+            )
         
         return playlist_sequence
+    
+    @staticmethod
+    def _fill_with_fillers(
+        sequence: List[int], 
+        filler_videos: List[Video], 
+        remaining_time: float,
+        shuffle: bool = False
+    ) -> List[int]:
+        """
+        Заполнить оставшееся время филлерами
+        
+        Args:
+            sequence: Текущая последовательность видео
+            filler_videos: Список филлеров
+            remaining_time: Оставшееся время в секундах
+            shuffle: Перемешивать ли филлеры чтобы не повторялись подряд
+        """
+        if not filler_videos:
+            return sequence
+        
+        result = sequence.copy()
+        max_iterations = 5000  # защита от бесконечного цикла
+        
+        if shuffle:
+            # Перемешиваем филлеры и избегаем повторений подряд
+            available_fillers = [v.id for v in filler_videos if (v.duration or 0) > 0]
+            if not available_fillers:
+                return result
+            
+            # Создаем список филлеров с их длительностями
+            filler_list = [(v.id, v.duration or 0) for v in filler_videos if (v.duration or 0) > 0]
+            random.shuffle(filler_list)
+            
+            last_filler_id = None
+            iterations = 0
+            
+            while remaining_time > 0 and iterations < max_iterations:
+                # Выбираем филлер, который не повторяет предыдущий
+                for filler_id, duration in filler_list:
+                    if filler_id != last_filler_id:
+                        result.append(filler_id)
+                        remaining_time -= duration
+                        last_filler_id = filler_id
+                        iterations += 1
+                        break
+                else:
+                    # Если все филлеры одинаковые или только один - просто берем первый
+                    filler_id, duration = filler_list[0]
+                    result.append(filler_id)
+                    remaining_time -= duration
+                    last_filler_id = filler_id
+                    iterations += 1
+                    # Перемешиваем снова для разнообразия
+                    random.shuffle(filler_list)
+        else:
+            # Простое циклическое заполнение
+            filler_index = 0
+            iterations = 0
+            
+            while remaining_time > 0 and iterations < max_iterations:
+                video = filler_videos[filler_index % len(filler_videos)]
+                duration = video.duration or 0
+                
+                if duration <= 0:
+                    filler_index += 1
+                    iterations += 1
+                    if filler_index >= len(filler_videos):
+                        break
+                    continue
+                
+                result.append(video.id)
+                remaining_time -= duration
+                filler_index += 1
+                iterations += 1
+        
+        return result
     
     @staticmethod
     def _distribute_evenly(sequence: List[int], priority_ids: List[int]) -> List[int]:
@@ -112,17 +193,27 @@ class PlaylistService:
         return result
     
     @staticmethod
-    def create_playlist(db: Session, vehicle_id: int, tariff: VehicleTariff, hours: int = 24) -> Playlist:
+    def create_playlist(
+        db: Session, 
+        tariff: VehicleTariff, 
+        vehicle_id: Optional[int] = None, 
+        hours: int = 24
+    ) -> Playlist:
         """
-        Создать плейлист для автомобиля: генерируется только 1 час контента.
+        Создать плейлист для тарифа или конкретного автомобиля.
+        
+        Если vehicle_id=None - создается общий плейлист для тарифа.
+        Если vehicle_id указан - создается индивидуальный плейлист для автомобиля.
+        
+        Генерируется только 1 час контента.
         Период действия — hours (по умолчанию 24). Приложение зацикливает часовой плейлист.
         """
         # Один часовой плейлист — приложение зациклит его
-        hourly_sequence = PlaylistService.generate_hourly_playlist(db, tariff, vehicle_id)
+        hourly_sequence = PlaylistService.generate_hourly_playlist(db, tariff)
         
         now = datetime.utcnow()
         playlist = Playlist(
-            vehicle_id=vehicle_id,
+            vehicle_id=vehicle_id,  # None для плейлиста по тарифу
             tariff=tariff,
             video_sequence=json.dumps(hourly_sequence),
             valid_from=now,
@@ -136,13 +227,33 @@ class PlaylistService:
         return playlist
     
     @staticmethod
-    def get_active_playlist(db: Session, vehicle_id: int) -> Playlist:
+    def get_active_playlist(db: Session, tariff: VehicleTariff, vehicle_id: Optional[int] = None) -> Optional[Playlist]:
         """
-        Получить активный плейлист для автомобиля
+        Получить активный плейлист для автомобиля или тарифа.
+        
+        Сначала ищет индивидуальный плейлист для vehicle_id (если указан),
+        если не найден - ищет общий плейлист для tariff.
         """
         now = datetime.utcnow()
-        return db.query(Playlist).filter(
-            Playlist.vehicle_id == vehicle_id,
+        
+        # Сначала ищем индивидуальный плейлист для автомобиля
+        if vehicle_id:
+            playlist = db.query(Playlist).filter(
+                Playlist.vehicle_id == vehicle_id,
+                Playlist.tariff == tariff,
+                Playlist.valid_from <= now,
+                Playlist.valid_until > now
+            ).order_by(Playlist.created_at.desc()).first()
+            
+            if playlist:
+                return playlist
+        
+        # Если не найден индивидуальный - ищем общий плейлист по тарифу
+        playlist = db.query(Playlist).filter(
+            Playlist.vehicle_id.is_(None),  # Общий плейлист по тарифу
+            Playlist.tariff == tariff,
             Playlist.valid_from <= now,
             Playlist.valid_until > now
         ).order_by(Playlist.created_at.desc()).first()
+        
+        return playlist

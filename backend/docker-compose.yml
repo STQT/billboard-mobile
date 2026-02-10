@@ -32,6 +32,9 @@ services:
     container_name: billboard_backend
     command: >
       sh -c "
+      echo 'Применение миграций базы данных...' &&
+      alembic upgrade head &&
+      echo 'Миграции применены. Запуск сервера...' &&
       if [ \"$${DEBUG:-true}\" = \"true\" ]; then
         uvicorn app.main:app --host $${HOST} --port $${PORT} --reload
       else
