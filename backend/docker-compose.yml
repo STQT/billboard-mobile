@@ -30,12 +30,19 @@ services:
   backend:
     build: .
     container_name: billboard_backend
-    command: uvicorn app.main:app --host ${HOST} --port ${PORT} --reload
+    command: >
+      sh -c "
+      if [ \"$${DEBUG:-true}\" = \"true\" ]; then
+        uvicorn app.main:app --host $${HOST} --port $${PORT} --reload
+      else
+        uvicorn app.main:app --host $${HOST} --port $${PORT}
+      fi
+      "
     volumes:
       - .:/app
       - ${UPLOADS_VOLUME_PATH:-./uploads}:/app/uploads
     ports:
-      - "${PORT}:8000"
+      - "${PORT}:${PORT}"
     depends_on:
       postgres:
         condition: service_healthy
