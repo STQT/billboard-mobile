@@ -9,22 +9,39 @@ import 'services/analytics_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/video_player_screen.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // Инициализация Hive
-  await Hive.initFlutter();
-  
-  // Landscape mode only
-  await SystemChrome.setPreferredOrientations([
+/// Faqat gorizontal (landscape), vertikal hech qachon yo'q
+void _lockLandscapeOrientation() {
+  SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
-  
-  // Hide system UI
+}
+
+/// Kiosk UI: status bar, navigation bar yashirilgan, immersive sticky
+void _applyKioskUi() {
+  _lockLandscapeOrientation();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarContrastEnforced: false,
+  ));
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Hive.initFlutter();
+
+  _lockLandscapeOrientation();
+  _applyKioskUi();
+
   runApp(const MyApp());
+
+  // Dastur to'liq yuklangach orientation qulfini qayta qo'llash
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _lockLandscapeOrientation();
+  });
 }
 
 class MyApp extends StatelessWidget {
@@ -59,26 +76,42 @@ class AuthWrapper extends StatefulWidget {
   State<AuthWrapper> createState() => _AuthWrapperState();
 }
 
-class _AuthWrapperState extends State<AuthWrapper> {
+class _AuthWrapperState extends State<AuthWrapper>
+    with WidgetsBindingObserver {
   bool _isChecking = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkSavedAuth();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _applyKioskUi();
+    }
   }
 
   Future<void> _checkSavedAuth() async {
     // Проверить сохраненный токен
     final authService = context.read<AuthService>();
     await authService.checkAuth();
-    
+
     if (mounted) {
       setState(() {
         _isChecking = false;
       });
     }
   }
+
   // kaireke
   // 719364825g
   @override
@@ -114,14 +147,17 @@ class _AuthWrapperState extends State<AuthWrapper> {
         ),
       );
     }
-    return Consumer<AuthService>(
-      builder: (context, authService, _) {
-        if (authService.isAuthenticated) {
-          return const VideoPlayerScreen();
-        } else {
-          return const LoginScreen();
-        }
-      },
+    return PopScope(
+      canPop: false,
+      child: Consumer<AuthService>(
+        builder: (context, authService, _) {
+          if (authService.isAuthenticated) {
+            return const VideoPlayerScreen();
+          } else {
+            return const LoginScreen();
+          }
+        },
+      ),
     );
   }
 }
