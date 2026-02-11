@@ -434,7 +434,7 @@ class PlaylistService:
         # Проходим по последовательности и вычисляем реальные временные метки
         # Для контрактных видео сохраняем ВСЕ повторения с их временными метками
         contract_items = []  # Список всех воспроизведений контрактных видео
-        filler_items_dict: Dict[int, Dict] = {}  # video_id -> {duration, file_path}
+        filler_items = []  # Список ВСЕХ воспроизведений филлеров (включая повторы)
         
         current_time = 0.0
         max_time = 3600.0  # 1 час
@@ -468,14 +468,14 @@ class PlaylistService:
                     'media_url': media_url,
                 })
             else:
-                # Филлер - собираем информацию о длительности и пути
-                if video_id not in filler_items_dict:
-                    media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
-                    filler_items_dict[video_id] = {
-                        'duration': duration,
-                        'file_path': video.file_path,
-                        'media_url': media_url,
-                    }
+                # Филлер - сохраняем КАЖДОЕ воспроизведение (включая повторы)
+                media_url = f"{base_url}{video.file_path}" if base_url else video.file_path
+                filler_items.append({
+                    'video_id': video_id,
+                    'duration': duration,
+                    'file_path': video.file_path,
+                    'media_url': media_url,
+                })
             
             # Перемещаем время вперед на длительность этого видео
             current_time = end_time
@@ -524,15 +524,7 @@ class PlaylistService:
         # Сортируем по времени начала
         contract_items_final.sort(key=lambda x: x['start_time'])
         
-        # Преобразовать филлеры в список
-        filler_items = [
-            {
-                'video_id': vid,
-                'duration': info['duration'],
-                'file_path': info['file_path'],
-                'media_url': info['media_url'],
-            }
-            for vid, info in filler_items_dict.items()
-        ]
+        # filler_items уже содержит все вхождения филлеров, включая повторы
+        # Ничего дополнительно делать не нужно
         
         return contract_items_final, filler_items
