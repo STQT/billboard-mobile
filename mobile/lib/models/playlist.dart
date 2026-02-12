@@ -53,6 +53,45 @@ class FillerVideoItem {
   }
 }
 
+/// Bitta o‘ynatish elementi — contract yoki filler dan, segment (start/end) bilan.
+class PlaylistPlayItem {
+  final int videoId;
+  final String mediaUrl;
+  final double duration;
+  final double startTime; // segment boshi (sekund)
+  final double endTime;   // segment oxiri (sekund)
+  final String title;     // ko‘rsatish uchun (bo‘sh bo‘lishi mumkin)
+
+  PlaylistPlayItem({
+    required this.videoId,
+    required this.mediaUrl,
+    required this.duration,
+    required this.startTime,
+    required this.endTime,
+    this.title = '',
+  });
+
+  factory PlaylistPlayItem.fromContract(ContractVideoItem c) {
+    return PlaylistPlayItem(
+      videoId: c.videoId,
+      mediaUrl: c.mediaUrl,
+      duration: c.duration,
+      startTime: c.startTime,
+      endTime: c.endTime,
+    );
+  }
+
+  factory PlaylistPlayItem.fromFiller(FillerVideoItem f) {
+    return PlaylistPlayItem(
+      videoId: f.videoId,
+      mediaUrl: f.mediaUrl,
+      duration: f.duration,
+      startTime: 0,
+      endTime: f.duration,
+    );
+  }
+}
+
 class Playlist {
   final int id;
   final int? vehicleId; // null для плейлиста по тарифу
@@ -93,9 +132,15 @@ class Playlist {
           ?.map((id) => id as int)
           .toList() ?? [],
       totalDuration: (json['total_duration'] as num?)?.toDouble() ?? 3600.0,
-      validFrom: DateTime.parse(json['valid_from']),
-      validUntil: DateTime.parse(json['valid_until']),
-      createdAt: DateTime.parse(json['created_at']),
+      validFrom: json['valid_from'] != null
+          ? DateTime.parse(json['valid_from'])
+          : DateTime.now(),
+      validUntil: json['valid_until'] != null
+          ? DateTime.parse(json['valid_until'])
+          : DateTime.now().add(const Duration(days: 365)),
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
+          : DateTime.now(),
     );
   }
 
@@ -110,5 +155,21 @@ class Playlist {
   /// Получить список всех уникальных ID видео (из последовательности)
   List<int> get allVideoIds {
     return videoSequence.toSet().toList();
+  }
+
+  /// Backend faqat contract_videos va filler_videos yuborganida: pleylistni
+  /// shu tartibda (avval contract, keyin filler) qurish. Har bir element bitta
+  /// o‘ynatish sloti — ortiqcha takrorlanish yo‘q.
+  List<PlaylistPlayItem> buildPlayItemsFromContractAndFiller() {
+    final list = <PlaylistPlayItem>[];
+    final sortedContract = List<ContractVideoItem>.from(contractVideos)
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    for (final c in sortedContract) {
+      list.add(PlaylistPlayItem.fromContract(c));
+    }
+    for (final f in fillerVideos) {
+      list.add(PlaylistPlayItem.fromFiller(f));
+    }
+    return list;
   }
 }

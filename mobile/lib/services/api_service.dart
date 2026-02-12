@@ -1,16 +1,18 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/app_config.dart';
+
 class ApiService {
-  static const String baseUrl = 'https://billboard.leetcode.uz/api/v1'; // Изменить на реальный URL
-  
+  static String get baseUrl => apiBaseUrl;
+
   late Dio _dio;
   String? _token;
   bool _isInitialized = false;
 
   ApiService() {
     _dio = Dio(BaseOptions(
-      baseUrl: baseUrl,
+      baseUrl: apiBaseUrl,
       connectTimeout: const Duration(seconds: 30),
       receiveTimeout: const Duration(seconds: 30),
       headers: {
