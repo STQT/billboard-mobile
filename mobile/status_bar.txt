@@ -10,9 +10,14 @@ Duration _playDuration = Duration.zero;  // Video davomiyligi
 int? _lastPlayedVideoId;  // Oxirgi o'ynatilgan video ID (ketma-ket takrorlanishni oldini olish)
 VideoPlayerController? _oldController;  // Smooth transition uchun eski controller
 bool _isTransitioning = false;  // Video o'tish jarayonida (bir marta trigger)
+Timer? _playlistRefreshTimer;  // Playlist yangilash timer
+bool _isRefreshingPlaylist = false;  // Playlist yangilanmoqda
+DateTime? _lastRefreshTime;  // Oxirgi yangilanish vaqti
 ```
 
-### 2. Status Update Timer (initState ichida):
+### 2. Timer lar (initState ichida):
+
+#### Status Update Timer:
 ```dart
 _statusUpdateTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
   if (mounted && !_isDisposing && _controller != null && _controller!.value.isInitialized) {
@@ -20,6 +25,15 @@ _statusUpdateTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       _playPosition = _controller!.value.position;
       _playDuration = _controller!.value.duration;
     });
+  }
+});
+```
+
+#### Playlist Refresh Timer (har 1 minutda - TEZROQ):
+```dart
+_playlistRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+  if (mounted && !_isDisposing && !_isRefreshingPlaylist) {
+    _refreshPlaylist();
   }
 });
 ```
@@ -399,18 +413,132 @@ Future<String> getVideoUrl(Video video) async {
 }
 ```
 
+## 🔄 AVTOMATIK PLAYLIST YANGILASH:
+
+### App Lifecycle Hook (foreground ga qaytganda):
+```dart
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (_isDisposing) return;
+  switch (state) {
+    case AppLifecycleState.resumed:
+      _applyImmersiveAndKiosk();
+      // App foreground ga qaytganda playlist ni yangilash
+      if (!_isRefreshingPlaylist) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && !_isDisposing) {
+            _refreshPlaylist();
+          }
+        });
+      }
+      break;
+    // ...
+  }
+}
+```
+
+### Playlist Refresh Metodi (YAXSHILANGAN):
+```dart
+Future<void> _refreshPlaylist() async {
+  if (_isDisposing || !mounted || _isRefreshingPlaylist) return;
+  
+  _isRefreshingPlaylist = true;
+  
+  try {
+    final videoService = context.read<VideoService>();
+    
+    // Eski playlist ma'lumotlari
+    final oldPlaylistId = videoService.currentPlaylist?.id;
+    final oldTotalVideos = videoService.usePlayItems 
+        ? videoService.playList.length 
+        : videoService.videos.length;
+    final currentVideoId = _currentVideo?.id ?? _currentPlayItem?.videoId;
+    
+    debugPrint('🔄 Refreshing playlist...');
+    debugPrint('   Old Playlist ID: $oldPlaylistId');
+    debugPrint('   Old Total Videos: $oldTotalVideos');
+    
+    // Playlist ni yangilash (API dan yangi ma'lumot olish)
+    await videoService.loadPlaylist();
+    
+    // Yangi playlist ma'lumotlari
+    final newPlaylistId = videoService.currentPlaylist?.id;
+    final newTotalVideos = videoService.usePlayItems 
+        ? videoService.playList.length 
+        : videoService.videos.length;
+    
+    debugPrint('✅ Playlist refreshed successfully!');
+    debugPrint('   New Playlist ID: $newPlaylistId');
+    debugPrint('   New Total Videos: $newTotalVideos');
+    
+    // Agar playlist o'zgardi yoki yangi videolar qo'shildi
+    if (oldPlaylistId != newPlaylistId || oldTotalVideos != newTotalVideos) {
+      debugPrint('🆕 PLAYLIST CHANGED!');
+      debugPrint('   Playlist ID changed: ${oldPlaylistId != newPlaylistId}');
+      debugPrint('   Video count changed: ${oldTotalVideos != newTotalVideos}');
+      
+      // Failed videolar ro'yxatini tozalash
+      _failedVideoIds.clear();
+      
+      // Agar hozirgi video yangi playlist da bo'lmasa, boshidan boshlash
+      final currentExists = videoService.usePlayItems
+          ? videoService.playList.any((item) => item.videoId == currentVideoId)
+          : videoService.videos.any((v) => v.id == currentVideoId);
+          
+      if (!currentExists && currentVideoId != null) {
+        debugPrint('⚠️ Current video not in new playlist, restarting...');
+        await _initialize();
+      }
+    }
+    
+    // Oxirgi yangilanish vaqtini saqlash
+    _lastRefreshTime = DateTime.now();
+    
+    if (mounted) {
+      setState(() {});
+    }
+  } catch (e) {
+    debugPrint('❌ Error refreshing playlist: $e');
+  } finally {
+    _isRefreshingPlaylist = false;
+  }
+}
+```
+
+### Xususiyatlari:
+- ✅ **Har 1 minutda** avtomatik yangilanadi (5 minutdan tezroq!)
+- ✅ **App foreground ga qaytganda** ham yangilanadi
+- ✅ Hozirgi video o'ynashda davom etadi (uzilmaydi)
+- ✅ Yangi videolar backend dan yuklanadi
+- ✅ **Playlist ID o'zgarishini aniqlaydi**
+- ✅ **Video soni o'zgarishini aniqlaydi**
+- ✅ **Aniq loglar** - qanday o'zgarish bo'lganini ko'rsatadi
+- ✅ Agar hozirgi video yangi playlist da bo'lmasa, qaytadan boshlaydi
+- ✅ Cache yangilanadi
+- ✅ Failed videolar ro'yxati tozalanadi
+- ✅ Background da ishlaydi
+- ✅ **Status bar da oxirgi yangilanish vaqti** ko'rsatiladi
+
 ## 🔧 DISPOSE METHOD:
 
 ```dart
 @override
 void dispose() {
   _isDisposing = true;
+  
+  // Barcha timer larni bekor qilish
+  _statusUpdateTimer?.cancel();
+  _statusUpdateTimer = null;
+  _playlistRefreshTimer?.cancel();  // ← Playlist refresh timer ham bekor qilinadi
+  _playlistRefreshTimer = null;
+  
   WidgetsBinding.instance.removeObserver(this);
-  _slotTransitionTimer?.cancel();
-  _statusUpdateTimer?.cancel();  // ← Status timer ham bekor qilinadi
-  _controller?.dispose();
   WakelockPlus.disable();
   stopKioskMode();
+  
+  _controller?.dispose();
+  _oldController?.dispose();
+  
   super.dispose();
 }
 ```
@@ -534,6 +662,13 @@ _isTransitioning = false;
 ✅ **SMOOTH TRANSITION** - dual controller strategy
 ✅ 300ms oldin keyingi video boshlanadi
 ✅ Listener bir marta trigger bo'ladi
+✅ **AVTOMATIK PLAYLIST YANGILASH** - har 1 minutda serverdan yangi videolar tekshiriladi
+✅ **App foreground ga qaytganda** ham avtomatik yangilanadi
+✅ Yangi videolar qo'shilganda avtomatik cache qilinadi va o'ynatiladi
+✅ Playlist ID va video soni o'zgarishini aniqlaydi
+✅ Aniq loglar - qanday o'zgarish bo'lganini ko'rsatadi
+✅ Hozirgi video uzilmaydi, background da yangilanadi
+✅ Status bar da oxirgi yangilanish vaqti ko'rsatiladi
 
 ---
 

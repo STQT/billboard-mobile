@@ -34,8 +34,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Duration _playPosition = Duration.zero;
   Duration _playDuration = Duration.zero;
   Timer? _statusUpdateTimer;
+  Timer? _playlistRefreshTimer; // Playlist yangilash timer
   int? _lastPlayedVideoId; // Oxirgi o'ynatilgan video ID ni tracking qilish
   bool _isTransitioning = false; // Video o'tish jarayonida
+  bool _isRefreshingPlaylist = false; // Playlist yangilanmoqda
+  DateTime? _lastRefreshTime; // Oxirgi yangilanish vaqti
 
   void _applyImmersiveAndKiosk() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -53,6 +56,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     WakelockPlus.enable();
     _applyImmersiveAndKiosk();
     _initialize();
+    
+    // Status update timer
     _statusUpdateTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (mounted &&
           !_isDisposing &&
@@ -64,6 +69,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         });
       }
     });
+    
+    // Playlist refresh timer - har 1 minutda yangilash (tezroq)
+    _playlistRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted && !_isDisposing && !_isRefreshingPlaylist) {
+        _refreshPlaylist();
+      }
+    });
   }
 
   @override
@@ -72,6 +84,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     switch (state) {
       case AppLifecycleState.resumed:
         _applyImmersiveAndKiosk();
+        // App foreground ga qaytganda playlist ni yangilash
+        if (!_isRefreshingPlaylist) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted && !_isDisposing) {
+              _refreshPlaylist();
+            }
+          });
+        }
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
@@ -107,6 +127,75 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (mounted) {
         setState(() => _isInitializing = false);
       }
+    }
+  }
+
+  /// Playlist ni yangilash (background da, hozirgi video o'ynashda davom etadi)
+  Future<void> _refreshPlaylist() async {
+    if (_isDisposing || !mounted || _isRefreshingPlaylist) return;
+    
+    _isRefreshingPlaylist = true;
+    
+    try {
+      final videoService = context.read<VideoService>();
+      
+      // Eski playlist ma'lumotlari
+      final oldPlaylistId = videoService.currentPlaylist?.id;
+      final oldTotalVideos = videoService.usePlayItems 
+          ? videoService.playList.length 
+          : videoService.videos.length;
+      final currentVideoId = _currentVideo?.id ?? _currentPlayItem?.videoId;
+      
+      debugPrint('🔄 Refreshing playlist...');
+      debugPrint('   Old Playlist ID: $oldPlaylistId');
+      debugPrint('   Old Total Videos: $oldTotalVideos');
+      debugPrint('   Current Video ID: $currentVideoId');
+      
+      // Playlist ni yangilash (API dan yangi ma'lumot olish)
+      await videoService.loadPlaylist();
+      
+      // Yangi playlist ma'lumotlari
+      final newPlaylistId = videoService.currentPlaylist?.id;
+      final newTotalVideos = videoService.usePlayItems 
+          ? videoService.playList.length 
+          : videoService.videos.length;
+      
+      debugPrint('✅ Playlist refreshed successfully!');
+      debugPrint('   New Playlist ID: $newPlaylistId');
+      debugPrint('   New Total Videos: $newTotalVideos');
+      
+      // Agar playlist o'zgardi yoki yangi videolar qo'shildi
+      if (oldPlaylistId != newPlaylistId || oldTotalVideos != newTotalVideos) {
+        debugPrint('🆕 PLAYLIST CHANGED!');
+        debugPrint('   Playlist ID changed: ${oldPlaylistId != newPlaylistId}');
+        debugPrint('   Video count changed: ${oldTotalVideos != newTotalVideos}');
+        
+        // Failed videolar ro'yxatini tozalash
+        _failedVideoIds.clear();
+        
+        // Agar hozirgi video yangi playlist da bo'lmasa, boshidan boshlash
+        final currentExists = videoService.usePlayItems
+            ? videoService.playList.any((item) => item.videoId == currentVideoId)
+            : videoService.videos.any((v) => v.id == currentVideoId);
+            
+        if (!currentExists && currentVideoId != null) {
+          debugPrint('⚠️ Current video not in new playlist, restarting...');
+          await _initialize();
+        }
+      } else {
+        debugPrint('ℹ️ Playlist unchanged');
+      }
+      
+      // Oxirgi yangilanish vaqtini saqlash
+      _lastRefreshTime = DateTime.now();
+      
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing playlist: $e');
+    } finally {
+      _isRefreshingPlaylist = false;
     }
   }
 
@@ -409,8 +498,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   @override
   void dispose() {
     _isDisposing = true;
+    
+    // Barcha timer larni bekor qilish
     _statusUpdateTimer?.cancel();
     _statusUpdateTimer = null;
+    _playlistRefreshTimer?.cancel();
+    _playlistRefreshTimer = null;
+    
     WidgetsBinding.instance.removeObserver(this);
     WakelockPlus.disable();
     stopKioskMode();
@@ -446,6 +540,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     return '${t.hour.toString().padLeft(2, '0')}:'
         '${t.minute.toString().padLeft(2, '0')}:'
         '${t.second.toString().padLeft(2, '0')}';
+  }
+
+  /// Vaqt o'tganini formatlash (necha vaqt oldin)
+  String _formatTimeSince(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+    
+    if (diff.inSeconds < 60) {
+      return '${diff.inSeconds}s oldin';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}m oldin';
+    } else {
+      return '${diff.inHours}h oldin';
+    }
   }
 
   /// Ma'lumot qatori
@@ -694,6 +802,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                                       ],
                                       _buildInfoRow('Jami', '$total ta video'),
                                       _buildInfoRow('💾 Rejim', 'OFFLINE-READY', valueColor: Colors.greenAccent),
+                                      
+                                      // Auto-update ma'lumoti
+                                      if (_lastRefreshTime != null) ...[
+                                        const SizedBox(height: 8),
+                                        _buildInfoRow(
+                                          '🔄 Oxirgi yangilanish',
+                                          _formatTimeSince(_lastRefreshTime!),
+                                          valueColor: Colors.blueAccent,
+                                        ),
+                                      ],
+                                      _buildInfoRow('⏱️ Interval', '1 daqiqa', valueColor: Colors.grey),
 
                                       const SizedBox(height: 24),
 
