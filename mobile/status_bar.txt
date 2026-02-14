@@ -1,0 +1,541 @@
+# 📋 STATUS BAR KODLARI - TO'LIQ PROMPT
+
+## 🎯 STATUS OVERLAY TUZILISHI
+
+### 1. State Variables:
+```dart
+bool _showStatusOverlay = true;  // Status ko'rsatilsinmi
+Duration _playPosition = Duration.zero;  // Hozirgi pozitsiya
+Duration _playDuration = Duration.zero;  // Video davomiyligi
+int? _lastPlayedVideoId;  // Oxirgi o'ynatilgan video ID (ketma-ket takrorlanishni oldini olish)
+VideoPlayerController? _oldController;  // Smooth transition uchun eski controller
+bool _isTransitioning = false;  // Video o'tish jarayonida (bir marta trigger)
+```
+
+### 2. Status Update Timer (initState ichida):
+```dart
+_statusUpdateTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+  if (mounted && !_isDisposing && _controller != null && _controller!.value.isInitialized) {
+    setState(() {
+      _playPosition = _controller!.value.position;
+      _playDuration = _controller!.value.duration;
+    });
+  }
+});
+```
+
+### 3. Helper Methods:
+```dart
+// Vaqtni formatlash (MM:SS)
+String _formatDuration(Duration d) {
+  final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
+// Hozirgi soatni formatlash (HH:MM:SS)
+String _formatCurrentTime() {
+  final now = DateTime.now();
+  return '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+}
+
+// Ma'lumot qatori
+Widget _buildInfoRow(String label, String value, {Color? valueColor}) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+```
+
+## 📱 STATUS OVERLAY UI (build method ichida):
+
+### Asosiy Overlay (TO'LIQ VERSIYA):
+```dart
+if (_showStatusOverlay)
+  Positioned.fill(
+    child: GestureDetector(
+      onTap: () => setState(() => _showStatusOverlay = false),  // Bosish bilan yopish
+      child: Container(
+        color: Colors.black.withOpacity(0.85),  // Shaffof fon
+        child: Consumer<VideoService>(
+          builder: (context, videoService, _) {
+            final usePlayItems = videoService.usePlayItems;
+            final playList = videoService.playList;
+            final videos = videoService.videos;
+            final idx = videoService.currentVideoIndex;
+            final total = usePlayItems ? playList.length : videos.length;
+            final v = _currentVideo;
+            final item = _currentPlayItem;
+            
+            // Keyingi video
+            final nextIndex = (idx + 1) % total;
+            final nextItem = usePlayItems && playList.isNotEmpty 
+                ? playList[nextIndex] 
+                : null;
+            final nextVideo = !usePlayItems && videos.isNotEmpty 
+                ? videos[nextIndex] 
+                : null;
+
+            // Contract yoki Filler ekanligini aniqlash
+            bool isCurrentContract = false;
+            bool isNextContract = false;
+            if (usePlayItems && videoService.currentPlaylist != null) {
+              final contractVideoIds = videoService.currentPlaylist!.contractVideos
+                  .map((c) => c.videoId)
+                  .toSet();
+              if (item != null) {
+                isCurrentContract = contractVideoIds.contains(item.videoId);
+              }
+              if (nextItem != null) {
+                isNextContract = contractVideoIds.contains(nextItem.videoId);
+              }
+            }
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ═══════════════════════════════════════
+                    // 1️⃣ HEADER
+                    // ═══════════════════════════════════════
+                    const Text(
+                      '🎬 Billboard Player Status',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ═══════════════════════════════════════
+                    // 2️⃣ HOZIRGI VAQT VA POZITSIYA
+                    // ═══════════════════════════════════════
+                    _buildInfoRow('🕐 Soat', _formatCurrentTime(DateTime.now())),
+                    _buildInfoRow('📍 Pozitsiya', '${idx + 1} / $total'),
+                    _buildInfoRow('🎯 Rejim', usePlayItems ? 'Contract + Filler' : 'Video Sequence'),
+                    
+                    const Divider(color: Colors.white38, height: 24),
+
+                    // ═══════════════════════════════════════
+                    // 3️⃣ HOZIRGI VIDEO MA'LUMOTLARI
+                    // ═══════════════════════════════════════
+                    Row(
+                      children: [
+                        Text(
+                          isCurrentContract
+                              ? '📺 Contract Video'
+                              : '🎞️ ${usePlayItems ? "Filler Video" : "Video"}',
+                          style: TextStyle(
+                            color: isCurrentContract
+                                ? Colors.green
+                                : Colors.orange,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    if (item != null) ...[
+                      _buildInfoRow('Video ID', item.videoId.toString()),
+                      _buildInfoRow('Pozitsiya', _formatDuration(_playPosition)),
+                      _buildInfoRow('Duration', _formatDuration(_playDuration)),
+                      if (isCurrentContract)
+                        _buildInfoRow(
+                          'Segment',
+                          '${item.startTime.toStringAsFixed(1)}s - ${item.endTime.toStringAsFixed(1)}s',
+                        ),
+                    ] else if (v != null) ...[
+                      _buildInfoRow('Video ID', v.id.toString()),
+                      _buildInfoRow('Nomi', v.title),
+                      _buildInfoRow('Pozitsiya', _formatDuration(_playPosition)),
+                      _buildInfoRow('Duration', _formatDuration(_playDuration)),
+                    ],
+
+                    if (_failedVideoIds.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _buildInfoRow('❌ O\'tkazilgan', '${_failedVideoIds.length} ta', valueColor: Colors.red),
+                    ],
+
+                    // ═══════════════════════════════════════
+                    // 4️⃣ KEYINGI VIDEO
+                    // ═══════════════════════════════════════
+                    if (nextItem != null || nextVideo != null) ...[
+                      const Divider(color: Colors.white38, height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.2),
+                          border: Border.all(color: Colors.blue, width: 2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isNextContract
+                                    ? '⏭️ Keyingi Contract Video'
+                                    : '⏭️ Keyingi ${usePlayItems ? "Filler" : "Video"}',
+                                style: const TextStyle(
+                                  color: Colors.blue,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (nextItem != null) ...[
+                                _buildInfoRow('Video ID', nextItem.videoId.toString()),
+                                _buildInfoRow(
+                                  'Duration',
+                                  '${(nextItem.endTime - nextItem.startTime).toStringAsFixed(1)}s',
+                                ),
+                                if (isNextContract)
+                                  _buildInfoRow(
+                                    'Segment',
+                                    '${nextItem.startTime.toStringAsFixed(1)}-${nextItem.endTime.toStringAsFixed(1)}s',
+                                  ),
+                              _buildInfoRow(
+                                '⏱️ Boshlanadi',
+                                '${(_playDuration.inMilliseconds / 1000 - _playPosition.inMilliseconds / 1000).toStringAsFixed(1)}s ichida',
+                                valueColor: Colors.greenAccent,
+                              ),
+                            ] else if (nextVideo != null) ...[
+                              _buildInfoRow('Video ID', nextVideo.id.toString()),
+                              _buildInfoRow('Nomi', nextVideo.title),
+                              _buildInfoRow(
+                                '⏱️ Boshlanadi',
+                                '${(_playDuration.inMilliseconds / 1000 - _playPosition.inMilliseconds / 1000).toStringAsFixed(1)}s ichida',
+                                valueColor: Colors.greenAccent,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    const Divider(color: Colors.white38, height: 24),
+
+                    // ═══════════════════════════════════════
+                    // 5️⃣ PLAYLIST STATISTIKA
+                    // ═══════════════════════════════════════
+                    const Text(
+                      '📊 Playlist Statistika',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (usePlayItems) ...[
+                      _buildInfoRow('Contract', '${videoService.currentPlaylist?.contractVideos.length ?? 0} ta'),
+                      _buildInfoRow('Filler', '${videoService.currentPlaylist?.fillerVideos.length ?? 0} ta'),
+                    ] else ...[
+                      _buildInfoRow('Videolar', '$total ta'),
+                    ],
+                    _buildInfoRow('Jami', '$total ta video'),
+                    _buildInfoRow('💾 Rejim', 'OFFLINE-READY', valueColor: Colors.greenAccent),
+
+                    const SizedBox(height: 24),
+
+                    // ═══════════════════════════════════════
+                    // 6️⃣ YOPISH TUGMASI
+                    // ═══════════════════════════════════════
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.touch_app, color: Colors.white, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Yopish uchun bosing',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ),
+  ),
+```
+
+## 🟢 STATUS TOGGLE BUTTON (yopilgan holatda - KICHIK VA TRANSPARENT):
+
+```dart
+if (!_showStatusOverlay)
+  Positioned(
+    right: 12,
+    top: 12,
+    child: GestureDetector(
+      onTap: () => setState(() => _showStatusOverlay = true),  // Bosish bilan ochish
+      child: Container(
+        padding: const EdgeInsets.all(6),  // 12 → 6 (yarim barobar kichik)
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.3),  // 0.7 → 0.3 (shaffofroq)
+          border: Border.all(color: Colors.green.withOpacity(0.6), width: 1),  // 2 → 1, shaffof
+          borderRadius: BorderRadius.circular(6),  // 8 → 6
+          boxShadow: [
+            BoxShadow(
+              color: Colors.green.withOpacity(0.2),  // 0.5 → 0.2 (kamroq glow)
+              blurRadius: 4,  // 10 → 4
+              spreadRadius: 1,  // 2 → 1
+            ),
+          ],
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.info_outline, color: Colors.green, size: 14),  // 24 → 14
+            SizedBox(width: 4),  // 8 → 4
+            Text(
+              'Status',
+              style: TextStyle(
+                color: Colors.white70,  // white → white70 (shaffofroq)
+                fontSize: 10,  // 16 → 10
+                fontWeight: FontWeight.w500,  // bold → w500
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  ),
+```
+
+## 🎨 RANGLI SCHEME:
+
+- **Header**: Oq, bold, katta (fontSize: 20)
+- **Current Video**: Yashil (contract) / To'q sariq (filler/video)
+- **Next Video**: Ko'k border, ko'k background (opacity: 0.2)
+- **Stats**: Oq matn
+- **Toggle Button**: Qora fon, yashil border, yashil glow effect
+- **Info Row**: Label - white70, Value - white (yoki custom color) + fontWeight.w500
+- **Failed Videos**: Qizil rang
+- **Offline Ready**: Yashil accent rang
+
+## 💾 OFFLINE REJIM (CACHE):
+
+VideoService avtomatik ravishda barcha videolarni cache qiladi:
+
+```dart
+// VideoService ichida
+Future<void> _cacheVideos() async {
+  for (var video in _videos) {
+    try {
+      final videoUrl = '${ApiService.baseUrl.replaceAll('/api/v1', '')}${video.filePath}';
+      await _cacheManager.downloadFile(videoUrl);
+    } catch (e) {
+      debugPrint('Error caching video ${video.id}: $e');
+    }
+  }
+}
+
+Future<void> _cachePlayListUrls() async {
+  for (var item in _playList) {
+    try {
+      await _cacheManager.downloadFile(item.mediaUrl);
+    } catch (e) {
+      debugPrint('Error caching ${item.mediaUrl}: $e');
+    }
+  }
+}
+```
+
+Video olishda avval cache'dan tekshiriladi:
+
+```dart
+Future<String> getVideoUrl(Video video) async {
+  final videoUrl = '${ApiService.baseUrl.replaceAll('/api/v1', '')}${video.filePath}';
+  try {
+    final fileInfo = await _cacheManager.getFileFromCache(videoUrl);
+    if (fileInfo != null) return fileInfo.file.path;  // Cache'dan
+    final file = await _cacheManager.getSingleFile(videoUrl);  // Download qilish
+    return file.path;
+  } catch (e) {
+    return videoUrl;  // Network URL qaytarish
+  }
+}
+```
+
+## 🔧 DISPOSE METHOD:
+
+```dart
+@override
+void dispose() {
+  _isDisposing = true;
+  WidgetsBinding.instance.removeObserver(this);
+  _slotTransitionTimer?.cancel();
+  _statusUpdateTimer?.cancel();  // ← Status timer ham bekor qilinadi
+  _controller?.dispose();
+  WakelockPlus.disable();
+  stopKioskMode();
+  super.dispose();
+}
+```
+
+## 📌 MUHIM ESLATMALAR:
+
+1. **Consumer<VideoService>** ishlatiladi - VideoService real-time listen qilinadi
+2. **GestureDetector** - overlay ga bosish bilan yopiladi
+3. **SingleChildScrollView** - agar ma'lumot ko'p bo'lsa scroll bo'ladi
+4. **SafeArea** - statusbar va navigation bar bilan to'qnashmaydi
+5. **Timer.periodic** - har 200ms da pozitsiya yangilanadi
+6. **isCurrentContract va isNextContract** - video turi aniqlanadi (playlist contractVideos ro'yxatidan)
+   ```dart
+   final contractVideoIds = videoService.currentPlaylist!.contractVideos
+       .map((c) => c.videoId)
+       .toSet();
+   isCurrentContract = contractVideoIds.contains(item.videoId);
+   ```
+
+## 🔄 VIDEO TAKRORLANISHNI OLDINI OLISH:
+
+### Video Looping OFF:
+```dart
+_controller!.setLooping(false);  // Video looping o'chirilgan
+```
+
+### Video Duration Tracking (300ms oldin o'tish):
+```dart
+_videoEndListener = () {
+  if (_controller == null || !_controller!.value.isInitialized) return;
+  final position = _controller!.value.position;
+  final duration = _controller!.value.duration;
+  
+  // 300ms oldin keyingi videoga o'tish (smooth transition)
+  if (duration > Duration.zero && position >= duration - const Duration(milliseconds: 300)) {
+    _onVideoEnded();
+  }
+};
+```
+
+### Ketma-ket Takrorlanishni Oldini Olish:
+```dart
+// _findNextPlayableVideo va _findNextPlayableItem funksiyalarida:
+final shouldSkipBecauseSameAsLast = 
+    videos.length > 1 && _lastPlayedVideoId != null && video.id == _lastPlayedVideoId;
+
+if (!_failedVideoIds.contains(video.id) && !shouldSkipBecauseSameAsLast) {
+  // Video o'ynatish
+}
+```
+
+### Oxirgi Video ID Saqlash:
+```dart
+_lastPlayedVideoId = video.id;  // yoki item.videoId
+```
+
+## 🎬 SMOOTH TRANSITION (Uzilishsiz Video O'tish):
+
+### Dual Controller Strategy:
+Videolar orasida uzilish bo'lmasligi uchun ikkita controller ishlatiladi:
+- `_controller` - hozirgi video
+- `_oldController` - oldingi video (transition vaqtida)
+
+### Video O'tish Jarayoni:
+```dart
+// 1. Eski controller ni saqlash
+_oldController = _controller;
+_controller = null;
+
+// 2. Yangi controller yaratish va initialize qilish
+_controller = VideoPlayerController.file(File(videoUrl));
+await _controller!.initialize();
+await _controller!.play();
+
+// 3. Tayyor bo'lganda eski controller ni dispose qilish
+if (_oldController != null) {
+  _oldController!.dispose();
+  _oldController = null;
+}
+```
+
+### Bir Marta Trigger (Listener Protection):
+```dart
+bool _isTransitioning = false;  // Flag
+
+void _onVideoEnded() {
+  if (_isDisposing || !mounted || _isTransitioning) return;
+  _isTransitioning = true;  // Faqat bir marta
+  
+  videoService.nextVideo();
+  _playCurrentVideo();
+}
+
+// Video tayyor bo'lganda:
+_isTransitioning = false;
+```
+
+### Afzalliklari:
+✅ Videolar orasida qora ekran yo'q
+✅ Smooth transition - uzilishsiz o'tish
+✅ Eski video frame ko'rsatiladi, yangi video tayyorlanayotganda
+✅ 300ms oldin keyingi video boshlanadi
+✅ Listener bir marta trigger bo'ladi
+
+## 🎯 FUNKSIONALLIK:
+
+✅ Real-time pozitsiya tracking
+✅ Hozirgi video haqida TO'LIQ ma'lumot (ID, pozitsiya, duration, segment)
+✅ Keyingi video haqida TO'LIQ ma'lumot (ID, duration, qancha vaqtdan keyin boshlanishi)
+✅ Contract/Filler to'g'ri aniqlash (contractVideos ro'yxatidan)
+✅ Failed videolar soni (qizil rangda)
+✅ Playlist statistika (contract, filler, jami videolar)
+✅ Offline rejim ko'rsatiladi (OFFLINE-READY)
+✅ Tap to show/hide
+✅ Chiroyli, to'liq ekranli UI dizayn
+✅ Video looping o'chirilgan (takrorlanmaydi)
+✅ Videolar o'z duration da o'ynaydi
+✅ Ketma-ket bir xil video o'ynamaydi
+✅ Start va end timelarda videolar qo'yiladi
+✅ **UZILISHSIZ VIDEO O'TISH** - videolar orasida qora ekran yo'q
+✅ **SMOOTH TRANSITION** - dual controller strategy
+✅ 300ms oldin keyingi video boshlanadi
+✅ Listener bir marta trigger bo'ladi
+
+---
+
+File location: c:\Users\user\project\billboard-mobile\mobile\lib\screens\video_player_screen.dart
+Lines: 440-762 (Status overlay), 51-77 (State & Timer), 457-466 (Helper methods), 734-755 (_buildInfoRow)
